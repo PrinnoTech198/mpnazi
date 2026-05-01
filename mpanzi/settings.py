@@ -54,6 +54,10 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "rest_framework_simplejwt",
     "account",
+
+
+    'cloudinary',
+    'cloudinary_storage',
 ]
 
 # Django REST Framework defaults
@@ -103,6 +107,12 @@ TEMPLATES = [
         },
     },
 ]
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv("CLOUD_NAME"),
+    'API_KEY': os.getenv("API_KEY"),
+    'API_SECRET': os.getenv("API_SECRET"),
+}
 
 WSGI_APPLICATION = "mpanzi.wsgi.application"
 DB_LIVE = os.getenv("DB_LIVE")
@@ -180,10 +190,13 @@ STATICFILES_DIRS = [
 # This is where all files (including Summernote's) will be gathered.
 STATIC_ROOT = BASE_DIR / 'staticfiles' 
 
+
 STORAGES = {
-    # ...
+    "default": {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+    },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
 
