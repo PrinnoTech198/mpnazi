@@ -22,11 +22,27 @@ class Sermon(models.Model):
 
 	# Audio
 
-	# audio_file = CloudinaryField(resource_type='video',blank=True,null=True)
-	audio_file = models.FileField(upload_to='sermons/audio/', blank=True, null=True)
+    # Audio - badilisha hapa
+	audio_file = CloudinaryField(
+        'audio',
+        resource_type='raw',  # muhimu kwa audio!
+        blank=True,
+        null=True
+    )
 
-	# Thumbnail
-	thumbnail_image = models.ImageField(upload_to='sermons/thumbnails/', blank=True, null=True)
+    # Thumbnail - badilisha hapa
+	thumbnail_image = CloudinaryField(
+        'image',
+        resource_type='image',
+        blank=True,
+        null=True
+    )
+
+	# # audio_file = CloudinaryField(resource_type='video',blank=True,null=True)
+	# audio_file = models.FileField(upload_to='sermons/audio/', blank=True, null=True)
+
+	# # Thumbnail
+	# thumbnail_image = models.ImageField(upload_to='sermons/thumbnails/', blank=True, null=True)
 
 	duration = models.CharField(max_length=50, blank=True)
 	views_count = models.PositiveIntegerField(default=0)
