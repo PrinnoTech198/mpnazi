@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-
+from cloudinary.models import CloudinaryField
 
 
 class Sermon(models.Model):
@@ -21,7 +21,9 @@ class Sermon(models.Model):
 	youtube_url = models.URLField(blank=True, null=True)
 
 	# Audio
-	audio_file = models.FileField(upload_to='sermons/audio/', blank=True, null=True)
+
+	audio_file = CloudinaryField(resource_type='video',blank=True,null=True)
+	# audio_file = models.FileField(upload_to='sermons/audio/', blank=True, null=True)
 
 	# Thumbnail
 	thumbnail_image = models.ImageField(upload_to='sermons/thumbnails/', blank=True, null=True)
