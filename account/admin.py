@@ -1,0 +1,148 @@
+from django.contrib import admin
+from .models import Sermon
+
+
+@admin.register(Sermon)
+class SermonAdmin(admin.ModelAdmin):
+	list_display = ('title', 'speaker', 'sermon_type', 'category', 'featured', 'published', 'date', 'views_count')
+	list_filter = ('sermon_type', 'published', 'featured', 'date', 'category')
+	search_fields = ('title', 'description', 'speaker')
+	readonly_fields = ('created_at', 'views_count')
+	fieldsets = (
+		(None, {'fields': ('title', 'speaker', 'description', 'category', 'sermon_type', 'featured', 'published', 'date')}),
+		('Media', {'fields': ('youtube_url', 'audio_file', 'thumbnail_image', 'duration')}),
+		('Meta', {'fields': ('views_count', 'created_at')}),
+	)
+
+	def thumbnail_preview(self, obj):
+		url = obj.get_thumbnail_url() if hasattr(obj, 'get_thumbnail_url') else None
+		if url:
+			from django.utils.safestring import mark_safe
+			return mark_safe(f'<img src="{url}" style="max-height: 100px;"/>')
+		return ''
+	thumbnail_preview.short_description = 'Thumbnail'
+
+
+from .models import Announcement
+
+
+@admin.register(Announcement)
+class AnnouncementAdmin(admin.ModelAdmin):
+	list_display = ('title', 'is_active', 'created_at')
+	list_filter = ('is_active', 'created_at')
+	search_fields = ('title', 'message')
+	readonly_fields = ('created_at',)
+
+
+from .models import News, NewsImage
+
+
+class NewsImageInline(admin.TabularInline):
+	model = NewsImage
+	extra = 1
+
+
+@admin.register(News)
+class NewsAdmin(admin.ModelAdmin):
+	list_display = ('title', 'created_at')
+	inlines = [NewsImageInline]
+	search_fields = ('title', 'body')
+
+
+from .models import Timetable
+
+
+@admin.register(Timetable)
+class TimetableAdmin(admin.ModelAdmin):
+	list_display = ('title', 'date', 'start_time', 'end_time', 'type', 'location')
+	list_filter = ('type', 'date')
+	search_fields = ('title', 'description', 'location')
+	readonly_fields = ('created_at',)
+
+
+from .models import Book
+
+
+@admin.register(Book)
+class BookAdmin(admin.ModelAdmin):
+	list_display = ('title', 'author', 'is_active', 'created_at')
+	list_filter = ('is_active', 'created_at')
+	search_fields = ('title', 'author')
+	readonly_fields = ('created_at',)
+	fieldsets = (
+		(None, {
+			'fields': ('title', 'author', 'description')
+		}),
+		('Files', {
+			'fields': ('cover_image', 'file', 'file_type', 'is_active')
+		}),
+	)
+
+
+from .models import Feedback
+
+
+@admin.register(Feedback)
+class FeedbackAdmin(admin.ModelAdmin):
+	list_display = ('name', 'email', 'is_read', 'created_at')
+	list_filter = ('is_read', 'created_at')
+	search_fields = ('name', 'email', 'message')
+	readonly_fields = ('created_at',)
+	actions = ['mark_as_read']
+
+	def mark_as_read(self, request, queryset):
+		queryset.update(is_read=True)
+	mark_as_read.short_description = 'Mark selected feedback as read'
+
+
+from .models import Service, Order, OrderItem
+
+
+@admin.register(Service)
+class ServiceAdmin(admin.ModelAdmin):
+	list_display = ('title', 'price', 'is_active', 'created_at')
+	list_filter = ('is_active', 'created_at')
+	search_fields = ('title', 'description')
+
+
+class OrderItemInline(admin.TabularInline):
+	model = OrderItem
+	extra = 0
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'total_amount', 'status', 'created_at')
+	list_filter = ('status', 'created_at')
+	inlines = [OrderItemInline]
+	readonly_fields = ('created_at',)
+
+
+from .models import Profile
+
+
+@admin.register(Profile)
+class ProfileAdmin(admin.ModelAdmin):
+	list_display = ('user', 'phone', 'city', 'share_profile_data')
+	readonly_fields = ()
+
+
+from .models import Representative
+
+
+@admin.register(Representative)
+class RepresentativeAdmin(admin.ModelAdmin):
+	list_display = ('full_name', 'phone_number', 'country', 'region', 'district', 'ward', 'is_active', 'created_at')
+	list_filter = ('is_active', 'country', 'region')
+	search_fields = ('full_name', 'phone_number', 'email')
+	readonly_fields = ('created_at',)
+
+
+from .models import Payment
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+	list_display = ('id', 'order', 'amount', 'provider', 'status', 'provider_transaction_id', 'created_at')
+	list_filter = ('provider', 'status', 'created_at')
+	readonly_fields = ('raw_response', 'created_at')
