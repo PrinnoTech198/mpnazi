@@ -36,8 +36,10 @@ DEBUG = True
 
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*']
+
 CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "http://127.0.0.1:8000"]
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -103,44 +105,33 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "mpanzi.wsgi.application"
-
-DATABASES = {
-    "default": {
-        "ENGINE":  "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST"),
-        "PORT": os.getenv("DB_PORT"),
-    }
-}
 DB_LIVE = os.getenv("DB_LIVE")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# if DB_LIVE in ["False", False]:
-#     DATABASES = {
-#         "default": {
-#             "ENGINE": os.environ.get("DB_ENGINE", "django.db.backends.postgresql"),
-#             "NAME": os.environ.get("DB_NAME", "mpanzi"),
-#             "USER": os.environ.get("DB_USER", "postgres"),
-#             "PASSWORD": os.environ.get("DB_PASSWORD", "Inno-997"),
-#             "HOST": os.environ.get("DB_HOST", "localhost"),
-#             "PORT": os.environ.get("DB_PORT", "5432"),
-#         }
-#     }
-# else:
-#     DATABASES = {
-#         "default": {
-#             "ENGINE":  "django.db.backends.postgresql",
-#             "NAME": os.getenv("DB_NAME"),
-#             "USER": os.getenv("DB_USER"),
-#             "PASSWORD": os.getenv("DB_PASSWORD"),
-#             "HOST": os.getenv("DB_HOST"),
-#             "PORT": os.getenv("DB_PORT"),
-#         }
-#     }
+if DB_LIVE in ["False", False]:
+    DATABASES = {
+        "default": {
+            "ENGINE": os.environ.get("DB_ENGINE", "django.db.backends.postgresql"),
+            "NAME": os.environ.get("DB_NAME", "mpanzi"),
+            "USER": os.environ.get("DB_USER", "postgres"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", "Inno-997"),
+            "HOST": os.environ.get("DB_HOST", "localhost"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+        }
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE":  "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME"),
+            "USER": os.getenv("DB_USER"),
+            "PASSWORD": os.getenv("DB_PASSWORD"),
+            "HOST": os.getenv("DB_HOST"),
+            "PORT": os.getenv("DB_PORT"),
+        }
+    }
 
 #postgresql://postgres:ovnTJVmaAJrBsosNpIrYZhZOKEiUOTbf@switchyard.proxy.rlwy.net:27501/railway
 
@@ -230,5 +221,5 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # AZAMPAY_CALLBACK_URL = config('AZAMPAY_CALLBACK_URL', default='')
 
 
-print("AZAMPAY_AUTH_BASE_URL:", AZAMPAY_AUTH_BASE_URL)
-print("AZAMPAY_API_BASE_URL:", AZAMPAY_API_BASE_URL)
+# print("AZAMPAY_AUTH_BASE_URL:", AZAMPAY_AUTH_BASE_URL)
+# print("AZAMPAY_API_BASE_URL:", AZAMPAY_API_BASE_URL)
