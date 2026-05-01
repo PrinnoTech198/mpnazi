@@ -37,7 +37,7 @@ DEBUG = True
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
 ALLOWED_HOSTS = ['*']
-
+CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "127.0.0.1:8000"]
 # Application definition
 
 INSTALLED_APPS = [
