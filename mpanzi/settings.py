@@ -112,6 +112,7 @@ CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.environ.get('CLOUD_NAME'),
     'API_KEY': os.environ.get('API_KEY'),
     'API_SECRET': os.environ.get('API_SECRET'),
+    'MAGIC_FILE_PATH': 'magic',
 }
 WSGI_APPLICATION = "mpanzi.wsgi.application"
 DB_LIVE = os.getenv("DB_LIVE")

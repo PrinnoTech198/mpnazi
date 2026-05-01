@@ -25,7 +25,7 @@ class Sermon(models.Model):
     # Audio - badilisha hapa
 	audio_file = CloudinaryField(
         'audio',
-        resource_type='raw',  # muhimu kwa audio!
+        resource_type='video',  # muhimu kwa audio!
         blank=True,
         null=True
     )
