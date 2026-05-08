@@ -10,8 +10,8 @@ from .models import News, NewsImage
 from .models import Timetable
 from .models import Book
 from .models import Feedback
-from .models import Service, Order, OrderItem, Representative
-from .serializers import AnnouncementSerializer, NewsSerializer, NewsImageSerializer, TimetableSerializer, BookSerializer, FeedbackSerializer, ServiceSerializer, OrderSerializer, OrderItemSerializer, RepresentativeSerializer
+from .models import Service, Order, OrderItem, Representative, PartnerType, Partnership
+from .serializers import AnnouncementSerializer, NewsSerializer, NewsImageSerializer, TimetableSerializer, BookSerializer, FeedbackSerializer, ServiceSerializer, OrderSerializer, OrderItemSerializer, RepresentativeSerializer, PartnerTypeSerializer, PartnershipSerializer
 
 from rest_framework import permissions, parsers
 from rest_framework.decorators import api_view, permission_classes
@@ -1171,3 +1171,44 @@ class RepresentativeViewSet(viewsets.ModelViewSet):
         if self.request.method in permissions.SAFE_METHODS:
             return [permissions.AllowAny()]
         return [permissions.IsAdminUser()]
+
+
+class PartnerTypeViewSet(viewsets.ModelViewSet):
+    queryset = PartnerType.objects.all().order_by('name')
+    serializer_class = PartnerTypeSerializer
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, 'user', None)
+        if not (user and user.is_staff):
+            qs = qs.filter(is_active=True)
+        return qs
+
+
+class PartnershipViewSet(viewsets.ModelViewSet):
+    queryset = Partnership.objects.all().order_by('-created_at')
+    serializer_class = PartnershipSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [permissions.IsAuthenticated()]
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
+
+    def get_queryset(self):
+        user = getattr(self.request, 'user', None)
+        qs = super().get_queryset()
+        if user and user.is_staff:
+            return qs
+        if user and user.is_authenticated:
+            return qs.filter(user=user)
+        return Partnership.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)

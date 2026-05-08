@@ -226,6 +226,90 @@ class Representative(models.Model):
 		return f"{self.full_name} ({self.phone_number})"
 
 
+class PartnerType(models.Model):
+	name = models.CharField(max_length=120, unique=True)
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['name']
+
+	def __str__(self):
+		return self.name
+
+
+class Partnership(models.Model):
+	CURRENCY_USD = 'USD'
+	CURRENCY_TSH = 'TSH'
+	CURRENCY_CHOICES = [
+		(CURRENCY_USD, 'USD'),
+		(CURRENCY_TSH, 'TSH'),
+	]
+
+	GIFT_ONE_TIME = 'ONE_TIME'
+	GIFT_RECURRING = 'RECURRING'
+	GIFT_TYPE_CHOICES = [
+		(GIFT_ONE_TIME, 'One Time'),
+		(GIFT_RECURRING, 'Recurring'),
+	]
+
+	FREQ_WEEKLY = 'WEEKLY'
+	FREQ_EVERY_2_WEEKS = 'EVERY_2_WEEKS'
+	FREQ_MONTHLY = 'MONTHLY'
+	FREQ_1ST_15TH = 'FIRST_AND_FIFTEENTH'
+	FREQUENCY_CHOICES = [
+		(FREQ_WEEKLY, 'Every week'),
+		(FREQ_EVERY_2_WEEKS, 'Every 2 weeks'),
+		(FREQ_MONTHLY, 'Every month'),
+		(FREQ_1ST_15TH, '1st & 15th monthly'),
+	]
+
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		related_name='partnerships',
+		null=True,
+		blank=True,
+	)
+	partner_type = models.ForeignKey(
+		PartnerType,
+		on_delete=models.PROTECT,
+		related_name='partnerships',
+	)
+	amount = models.DecimalField(max_digits=12, decimal_places=2)
+	currency = models.CharField(max_length=3, choices=CURRENCY_CHOICES)
+	gift_type = models.CharField(
+		max_length=12,
+		choices=GIFT_TYPE_CHOICES,
+		default=GIFT_ONE_TIME,
+	)
+	frequency = models.CharField(
+		max_length=30,
+		choices=FREQUENCY_CHOICES,
+		blank=True,
+		null=True,
+	)
+	start_date = models.DateField(blank=True, null=True)
+	fund = models.CharField(max_length=120, blank=True, default='Where Needed Most')
+	street = models.CharField(max_length=255, blank=True)
+	district = models.CharField(max_length=120, blank=True)
+	ward = models.CharField(max_length=120, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+
+	def __str__(self):
+		return f"{self.partner_type} - {self.amount} {self.currency}"
+
+	def clean(self):
+		from django.core.exceptions import ValidationError
+		if self.gift_type == self.GIFT_RECURRING and not self.frequency:
+			raise ValidationError({'frequency': 'Frequency is required for recurring giving.'})
+		if self.gift_type == self.GIFT_ONE_TIME:
+			self.frequency = None
+
+
 class Order(models.Model):
 	STATUS_PENDING = 'PENDING'
 	STATUS_PROCESSING = 'PROCESSING'

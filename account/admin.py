@@ -146,3 +146,20 @@ class PaymentAdmin(admin.ModelAdmin):
 	list_display = ('id', 'order', 'amount', 'provider', 'status', 'provider_transaction_id', 'created_at')
 	list_filter = ('provider', 'status', 'created_at')
 	readonly_fields = ('raw_response', 'created_at')
+
+
+from .models import PartnerType, Partnership
+
+
+@admin.register(PartnerType)
+class PartnerTypeAdmin(admin.ModelAdmin):
+	list_display = ('name', 'is_active', 'created_at')
+	list_filter = ('is_active',)
+	search_fields = ('name',)
+
+
+@admin.register(Partnership)
+class PartnershipAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'partner_type', 'amount', 'currency', 'gift_type', 'frequency', 'district', 'ward', 'created_at')
+	list_filter = ('currency', 'gift_type', 'frequency', 'partner_type')
+	search_fields = ('user__username', 'street', 'district', 'ward', 'fund')

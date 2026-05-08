@@ -1,6 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
-from .views import SermonViewSet, AnnouncementViewSet, NewsViewSet, TimetableViewSet, BookViewSet, FeedbackViewSet, ServiceViewSet, AdminServiceViewSet, OrderViewSet, register_view, me_view, RepresentativeViewSet, representatives_nearby
+from .views import SermonViewSet, AnnouncementViewSet, NewsViewSet, TimetableViewSet, BookViewSet, FeedbackViewSet, ServiceViewSet, AdminServiceViewSet, OrderViewSet, register_view, me_view, RepresentativeViewSet, representatives_nearby, PartnerTypeViewSet, PartnershipViewSet
 from .views import InitiatePaymentAPIView, AzamPayWebhookAPIView, PaymentStatusAPIView
 
 router = DefaultRouter()
@@ -14,6 +14,8 @@ router.register(r'services', ServiceViewSet, basename='service')
 router.register(r'admin/services', AdminServiceViewSet, basename='admin-service')
 router.register(r'representatives', RepresentativeViewSet, basename='representative')
 router.register(r'orders', OrderViewSet, basename='order')
+router.register(r'partner-types', PartnerTypeViewSet, basename='partner-type')
+router.register(r'partnerships', PartnershipViewSet, basename='partnership')
 
 urlpatterns = [
     path('', include(router.urls)),

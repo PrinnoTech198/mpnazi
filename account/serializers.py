@@ -207,3 +207,45 @@ class RepresentativeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Representative
         fields = ['id', 'full_name', 'phone_number', 'email', 'country', 'region', 'district', 'ward', 'street', 'latitude', 'longitude', 'profile_image', 'is_active', 'created_at', 'distance']
+
+
+from .models import PartnerType, Partnership
+
+
+class PartnerTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PartnerType
+        fields = ['id', 'name', 'is_active', 'created_at']
+
+
+class PartnershipSerializer(serializers.ModelSerializer):
+    partner_type_name = serializers.CharField(source='partner_type.name', read_only=True)
+
+    class Meta:
+        model = Partnership
+        fields = [
+            'id',
+            'user',
+            'partner_type',
+            'partner_type_name',
+            'amount',
+            'currency',
+            'gift_type',
+            'frequency',
+            'start_date',
+            'fund',
+            'street',
+            'district',
+            'ward',
+            'created_at',
+        ]
+        read_only_fields = ['user', 'created_at', 'partner_type_name']
+
+    def validate(self, attrs):
+        gift_type = attrs.get('gift_type') or getattr(self.instance, 'gift_type', None)
+        frequency = attrs.get('frequency') or getattr(self.instance, 'frequency', None)
+        if gift_type == Partnership.GIFT_RECURRING and not frequency:
+            raise serializers.ValidationError({'frequency': 'Frequency is required for recurring giving.'})
+        if gift_type == Partnership.GIFT_ONE_TIME:
+            attrs['frequency'] = None
+        return attrs
