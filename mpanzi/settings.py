@@ -33,10 +33,9 @@ SECRET_KEY = "django-insecure-kav^xz_pq#^pqyx^%g(t+ei2nrpkler)jggy60eq%u(me(7*dq
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
-ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*']
+ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*',"192.168.1.189", "causal-gratify-carat.ngrok-free.dev"]
 
 CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "http://127.0.0.1:8000"]
 
@@ -55,17 +54,42 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "account",
 
-
+    "django_summernote",
     'cloudinary',
     'cloudinary_storage',
 ]
+
+# django-summernote (WYSIWYG for Devotional bodies in admin)
+X_FRAME_OPTIONS = "SAMEORIGIN"
+SUMMERNOTE_CONFIG = {
+    "iframe": True,
+    "summernote": {
+        "width": "100%",
+        "height": "480",
+        "toolbar": [
+            ["style", ["style"]],
+            ["font", ["bold", "italic", "underline", "clear"]],
+            ["fontsize", ["fontsize"]],
+            ["para", ["ul", "ol", "paragraph"]],
+            ["insert", ["link"]],
+            ["view", ["fullscreen", "codeview"]],
+        ],
+    },
+    "css_for_widget": (),
+    "js_for_widget": (),
+}
 
 # Django REST Framework defaults
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    # Public content by default; lock down sensitive endpoints explicitly (payment, orders, profile).
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.AllowAny',
+    ),
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Use optional JWT so stale Bearer tokens on public GETs do not force 401
+        'account.authentication.OptionalJWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ),

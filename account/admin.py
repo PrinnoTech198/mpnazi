@@ -4,12 +4,12 @@ from .models import Sermon
 
 @admin.register(Sermon)
 class SermonAdmin(admin.ModelAdmin):
-	list_display = ('title', 'speaker', 'sermon_type', 'category', 'featured', 'published', 'date', 'views_count')
-	list_filter = ('sermon_type', 'published', 'featured', 'date', 'category')
+	list_display = ('title', 'speaker', 'sermon_type', 'category', 'is_kickoff', 'featured', 'published', 'date', 'views_count')
+	list_filter = ('sermon_type', 'published', 'featured', 'is_kickoff', 'date', 'category')
 	search_fields = ('title', 'description', 'speaker')
 	readonly_fields = ('created_at', 'views_count')
 	fieldsets = (
-		(None, {'fields': ('title', 'speaker', 'description', 'category', 'sermon_type', 'featured', 'published', 'date')}),
+		(None, {'fields': ('title', 'speaker', 'description', 'category', 'sermon_type', 'is_kickoff', 'featured', 'published', 'date')}),
 		('Media', {'fields': ('youtube_url', 'audio_file', 'thumbnail_image', 'duration')}),
 		('Meta', {'fields': ('views_count', 'created_at')}),
 	)
@@ -75,6 +75,32 @@ class BookAdmin(admin.ModelAdmin):
 		}),
 		('Files', {
 			'fields': ('cover_image', 'file', 'file_type', 'is_active')
+		}),
+	)
+
+
+from django_summernote.admin import SummernoteModelAdmin
+from .models import Devotional
+
+
+@admin.register(Devotional)
+class DevotionalAdmin(SummernoteModelAdmin):
+	list_display = ('title', 'author', 'category', 'devotion_date', 'published', 'created_at')
+	list_filter = ('published', 'category', 'devotion_date')
+	search_fields = ('title', 'author', 'scripture_reference', 'category')
+	readonly_fields = ('created_at', 'updated_at')
+	fieldsets = (
+		(None, {
+			'fields': ('title', 'author', 'category', 'devotion_date', 'published', 'thumbnail')
+		}),
+		('Scripture', {
+			'fields': ('scripture_reference', 'scripture_text', 'excerpt')
+		}),
+		('Body', {
+			'fields': ('content', 'further_study', 'golden_nugget', 'prayer')
+		}),
+		('Meta', {
+			'fields': ('created_at', 'updated_at')
 		}),
 	)
 
@@ -163,3 +189,80 @@ class PartnershipAdmin(admin.ModelAdmin):
 	list_display = ('id', 'user', 'partner_type', 'amount', 'currency', 'gift_type', 'frequency', 'district', 'ward', 'created_at')
 	list_filter = ('currency', 'gift_type', 'frequency', 'partner_type')
 	search_fields = ('user__username', 'street', 'district', 'ward', 'fund')
+
+
+from .models import (
+	Crusade,
+	CrusadeGalleryItem,
+	CrusadeReport,
+	CrusadeTestimony,
+	CrusadeVideo,
+	GospelImpactStats,
+)
+
+
+class CrusadeReportInline(admin.TabularInline):
+	model = CrusadeReport
+	extra = 0
+	ordering = ('order', 'id')
+
+
+class CrusadeTestimonyInline(admin.TabularInline):
+	model = CrusadeTestimony
+	extra = 0
+	ordering = ('order', 'id')
+
+
+class CrusadeGalleryItemInline(admin.TabularInline):
+	model = CrusadeGalleryItem
+	extra = 0
+	ordering = ('order', 'id')
+
+
+class CrusadeVideoInline(admin.TabularInline):
+	model = CrusadeVideo
+	extra = 0
+	ordering = ('order', 'id')
+
+
+@admin.register(Crusade)
+class CrusadeAdmin(admin.ModelAdmin):
+	list_display = (
+		'title',
+		'city',
+		'country',
+		'start_date',
+		'end_date',
+		'is_live',
+		'published',
+		'created_at',
+	)
+	list_filter = ('is_live', 'published', 'country', 'start_date')
+	search_fields = ('title', 'theme', 'description', 'city', 'speaker')
+	readonly_fields = ('created_at', 'updated_at')
+	inlines = [
+		CrusadeReportInline,
+		CrusadeTestimonyInline,
+		CrusadeGalleryItemInline,
+		CrusadeVideoInline,
+	]
+	fieldsets = (
+		(None, {'fields': ('title', 'theme', 'description', 'speaker', 'published', 'is_live')}),
+		('Location & dates', {'fields': ('city', 'country', 'start_date', 'end_date', 'start_time', 'end_time')}),
+		('Media', {'fields': ('banner_image', 'livestream_url')}),
+		('Stats', {'fields': ('souls_saved', 'miracles_count', 'attendance_count')}),
+		('Live UI metrics', {'fields': ('live_attendance', 'prayer_comments', 'online_nations')}),
+		('Meta', {'fields': ('created_at', 'updated_at')}),
+	)
+
+
+@admin.register(GospelImpactStats)
+class GospelImpactStatsAdmin(admin.ModelAdmin):
+	list_display = ('total_souls', 'total_miracles', 'total_nations', 'total_crusades', 'updated_at')
+	readonly_fields = ('updated_at',)
+
+	def has_add_permission(self, request):
+		return not GospelImpactStats.objects.exists()
+
+	def has_delete_permission(self, request, obj=None):
+		return False

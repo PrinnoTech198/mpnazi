@@ -13,7 +13,8 @@ class SermonSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'speaker', 'description', 'category', 'sermon_type',
             'youtube_url', 'youtube_video_id', 'audio_file', 'thumbnail_image',
-            'duration', 'views_count', 'featured', 'published', 'date', 'created_at'
+            'duration', 'views_count', 'featured', 'published', 'is_kickoff',
+            'date', 'created_at'
         ]
 
     def get_youtube_video_id(self, obj):
@@ -113,7 +114,15 @@ from .models import Book
 
 class BookSerializer(serializers.ModelSerializer):
     cover_image = serializers.ImageField(read_only=True)
-    file = serializers.FileField(read_only=True)
+    file = serializers.SerializerMethodField(read_only=True)
+
+    def get_file(self, obj):
+        if not getattr(obj, "file", None):
+            return ""
+        try:
+            return obj.file.url
+        except Exception:
+            return str(obj.file)
 
     class Meta:
         model = Book
@@ -249,3 +258,70 @@ class PartnershipSerializer(serializers.ModelSerializer):
         if gift_type == Partnership.GIFT_ONE_TIME:
             attrs['frequency'] = None
         return attrs
+
+
+from .models import Devotional
+
+
+class DevotionalListSerializer(serializers.ModelSerializer):
+    thumbnail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Devotional
+        fields = [
+            'id',
+            'title',
+            'author',
+            'category',
+            'devotion_date',
+            'scripture_reference',
+            'scripture_text',
+            'excerpt',
+            'thumbnail',
+        ]
+
+    def _thumbnail_url(self, obj):
+        if not obj.thumbnail:
+            return None
+        try:
+            return obj.thumbnail.url
+        except Exception:
+            return None
+
+    def get_thumbnail(self, obj):
+        request = self.context.get('request')
+        raw = self._thumbnail_url(obj)
+        if not raw:
+            return None
+        try:
+            if request:
+                return request.build_absolute_uri(raw)
+        except Exception:
+            pass
+        return raw
+
+
+class DevotionalDetailSerializer(serializers.ModelSerializer):
+    thumbnail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Devotional
+        fields = [
+            'id',
+            'title',
+            'author',
+            'category',
+            'devotion_date',
+            'scripture_reference',
+            'scripture_text',
+            'excerpt',
+            'thumbnail',
+            'content',
+            'further_study',
+            'golden_nugget',
+            'prayer',
+            'created_at',
+        ]
+
+    def get_thumbnail(self, obj):
+        return DevotionalListSerializer(context=self.context).get_thumbnail(obj)

@@ -1,4 +1,4 @@
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters as drf_filters
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
@@ -10,8 +10,25 @@ from .models import News, NewsImage
 from .models import Timetable
 from .models import Book
 from .models import Feedback
-from .models import Service, Order, OrderItem, Representative, PartnerType, Partnership
-from .serializers import AnnouncementSerializer, NewsSerializer, NewsImageSerializer, TimetableSerializer, BookSerializer, FeedbackSerializer, ServiceSerializer, OrderSerializer, OrderItemSerializer, RepresentativeSerializer, PartnerTypeSerializer, PartnershipSerializer
+from .models import Service, Order, OrderItem, Representative, PartnerType, Partnership, Devotional
+from .models import (
+    Crusade,
+    CrusadeGalleryItem,
+    CrusadeReport,
+    CrusadeTestimony,
+    CrusadeVideo,
+    GospelImpactStats,
+)
+from django.db.models import Prefetch
+from .crusades_serializers import (
+    CrusadeDetailSerializer,
+    CrusadeGalleryItemSerializer,
+    CrusadeReportSerializer,
+    CrusadeSerializer,
+    CrusadeTestimonySerializer,
+    CrusadeVideoSerializer,
+)
+from .serializers import AnnouncementSerializer, NewsSerializer, NewsImageSerializer, TimetableSerializer, BookSerializer, FeedbackSerializer, ServiceSerializer, OrderSerializer, OrderItemSerializer, RepresentativeSerializer, PartnerTypeSerializer, PartnershipSerializer, DevotionalListSerializer, DevotionalDetailSerializer
 
 from rest_framework import permissions, parsers
 from rest_framework.decorators import api_view, permission_classes
@@ -33,7 +50,10 @@ from uuid import uuid4
 from .services.azampay import AzamPayClient
 from .models import Payment, Order
 from .serializers import PaymentSerializer, OrderStatusSerializer
+from .permissions import PublicReadAdminWrite
 from django.conf import settings
+from django.utils import timezone as django_timezone
+from datetime import timedelta
 import hmac
 import hashlib
 import json
@@ -57,17 +77,14 @@ class SermonViewSet(viewsets.ModelViewSet):
     """Sermons API - list, retrieve for public; CRUD for admin."""
     queryset = Sermon.objects.all()
     serializer_class = SermonSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'sermon_type', 'featured', 'published']
+    filter_backends = [DjangoFilterBackend, drf_filters.SearchFilter, drf_filters.OrderingFilter]
+    filterset_fields = ['category', 'sermon_type', 'featured', 'published', 'is_kickoff']
     search_fields = ['title', 'description', 'speaker']
     ordering_fields = ['date', 'views_count', 'created_at']
     ordering = ['-date']
     pagination_class = StandardResultsSetPagination
 
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -79,6 +96,10 @@ class SermonViewSet(viewsets.ModelViewSet):
         st = self.request.query_params.get('sermon_type') or self.request.query_params.get('type')
         if st in (Sermon.SERMON_TYPE_AUDIO, Sermon.SERMON_TYPE_VIDEO):
             qs = qs.filter(sermon_type=st)
+        kickoff = self.request.query_params.get('is_kickoff')
+        if kickoff is not None and str(kickoff).lower() in ('1', 'true', 'yes'):
+            cutoff = django_timezone.now() - timedelta(days=5)
+            qs = qs.filter(is_kickoff=True, created_at__gte=cutoff)
         return qs
 
     def retrieve(self, request, *args, **kwargs):
@@ -109,12 +130,7 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
     serializer_class = AnnouncementSerializer
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
-    def get_permissions(self):
-        # Safe methods (GET, HEAD, OPTIONS) are allowed to anyone.
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        # Unsafe methods require admin/staff
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -130,10 +146,7 @@ class NewsViewSet(viewsets.ModelViewSet):
     serializer_class = NewsSerializer
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
     def create(self, request, *args, **kwargs):
         # Expect title, body in request.data and files in request.FILES.getlist('images')
@@ -168,10 +181,7 @@ class TimetableViewSet(viewsets.ModelViewSet):
     queryset = Timetable.objects.all()
     serializer_class = TimetableSerializer
 
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -204,10 +214,7 @@ class BookViewSet(viewsets.ModelViewSet):
     serializer_class = BookSerializer
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -216,6 +223,151 @@ class BookViewSet(viewsets.ModelViewSet):
         if not (user and user.is_staff):
             qs = qs.filter(is_active=True)
         return qs.order_by('-created_at')
+
+
+class DevotionalViewSet(viewsets.ModelViewSet):
+    """Public list/retrieve; HTML bodies edited in admin via django-summernote."""
+
+    queryset = Devotional.objects.all()
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [drf_filters.SearchFilter]
+    search_fields = ('title', 'author', 'category', 'scripture_reference', 'content')
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+
+    permission_classes = [PublicReadAdminWrite]
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return DevotionalDetailSerializer
+        return DevotionalListSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, 'user', None)
+        if not (user and user.is_staff):
+            qs = qs.filter(published=True)
+        category = self.request.query_params.get('category')
+        if category:
+            qs = qs.filter(category__iexact=category.strip())
+        return qs.order_by('-devotion_date', '-created_at')
+
+
+class CrusadeViewSet(viewsets.ModelViewSet):
+    """Public read; staff CRUD. Nested reports/testimonies/gallery/videos on retrieve."""
+
+    queryset = Crusade.objects.all()
+    permission_classes = [PublicReadAdminWrite]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [drf_filters.OrderingFilter]
+    ordering_fields = ['start_date', 'created_at', 'id']
+    ordering = ['-start_date']
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return CrusadeDetailSerializer
+        return CrusadeSerializer
+
+    def get_queryset(self):
+        qs = Crusade.objects.all()
+        user = getattr(self.request, 'user', None)
+        if not (user and user.is_staff):
+            qs = qs.filter(published=True)
+        live = self.request.query_params.get('live')
+        if live is not None and str(live).lower() in ('1', 'true', 'yes'):
+            qs = qs.filter(is_live=True)
+        scope = (self.request.query_params.get('scope') or '').strip().lower()
+        if scope:
+            today = django_timezone.now().date()
+            if scope == 'upcoming':
+                qs = qs.filter(start_date__gt=today).exclude(is_live=True)
+            elif scope == 'past':
+                qs = qs.filter(end_date__lt=today).exclude(is_live=True)
+            elif scope == 'live':
+                qs = qs.filter(is_live=True)
+        if self.action == 'retrieve':
+            qs = qs.prefetch_related(
+                Prefetch(
+                    'reports',
+                    queryset=CrusadeReport.objects.order_by('order', 'id'),
+                ),
+                Prefetch(
+                    'testimonies',
+                    queryset=CrusadeTestimony.objects.order_by('order', 'id'),
+                ),
+                Prefetch(
+                    'gallery_items',
+                    queryset=CrusadeGalleryItem.objects.order_by('order', 'id'),
+                ),
+                Prefetch(
+                    'videos',
+                    queryset=CrusadeVideo.objects.order_by('order', 'id'),
+                ),
+            )
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='gospel-impact')
+    def gospel_impact(self, request):
+        stats, _ = GospelImpactStats.objects.get_or_create(pk=1)
+        return Response(
+            {
+                'total_souls': stats.total_souls,
+                'total_miracles': stats.total_miracles,
+                'total_nations': stats.total_nations,
+                'total_crusades': stats.total_crusades,
+            }
+        )
+
+    @action(detail=True, methods=['get'], url_path='reports')
+    def reports_list(self, request, pk=None):
+        crusade = self.get_object()
+        ser = CrusadeReportSerializer(
+            crusade.reports.all(),
+            many=True,
+            context={'request': request},
+        )
+        return Response(ser.data)
+
+    @action(detail=True, methods=['get'], url_path='testimonies')
+    def testimonies_list(self, request, pk=None):
+        crusade = self.get_object()
+        ser = CrusadeTestimonySerializer(
+            crusade.testimonies.all(),
+            many=True,
+            context={'request': request},
+        )
+        return Response(ser.data)
+
+    @action(detail=True, methods=['get'], url_path='gallery')
+    def gallery_list(self, request, pk=None):
+        crusade = self.get_object()
+        ser = CrusadeGalleryItemSerializer(
+            crusade.gallery_items.all(),
+            many=True,
+            context={'request': request},
+        )
+        return Response(ser.data)
+
+    @action(detail=True, methods=['get'], url_path='videos')
+    def videos_list(self, request, pk=None):
+        crusade = self.get_object()
+        ser = CrusadeVideoSerializer(
+            crusade.videos.all(),
+            many=True,
+            context={'request': request},
+        )
+        return Response(ser.data)
+
+    @action(detail=True, methods=['get'], url_path='live-meta')
+    def live_meta(self, request, pk=None):
+        c = self.get_object()
+        return Response(
+            {
+                'crusade_id': str(c.pk),
+                'live_attendance': c.live_attendance,
+                'prayer_comments': c.prayer_comments,
+                'online_nations': c.online_nations,
+            }
+        )
 
 
 class FeedbackViewSet(viewsets.ModelViewSet):
@@ -924,11 +1076,7 @@ class PaymentStatusAPIView(APIView):
 class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Service.objects.filter(is_active=True)
     serializer_class = ServiceSerializer
-
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [permissions.AllowAny]
 
 
 class AdminServiceViewSet(viewsets.ModelViewSet):
@@ -1006,6 +1154,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 @api_view(['POST'])
+@permission_classes([permissions.AllowAny])
 def register_view(request):
     # expected: email, full_name, password
     email = request.data.get('email')
@@ -1124,6 +1273,7 @@ def me_view(request):
 
 
 @api_view(['GET'])
+@permission_classes([permissions.AllowAny])
 def representatives_nearby(request):
     try:
         lat = request.query_params.get('lat')
@@ -1167,20 +1317,14 @@ class RepresentativeViewSet(viewsets.ModelViewSet):
     serializer_class = RepresentativeSerializer
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
 
 class PartnerTypeViewSet(viewsets.ModelViewSet):
     queryset = PartnerType.objects.all().order_by('name')
     serializer_class = PartnerTypeSerializer
 
-    def get_permissions(self):
-        if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    permission_classes = [PublicReadAdminWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1195,10 +1339,14 @@ class PartnershipViewSet(viewsets.ModelViewSet):
     serializer_class = PartnershipSerializer
 
     def get_permissions(self):
+        # Optional authentication for partner signup:
+        # - guest users can submit POST
+        # - authenticated users are auto-linked in perform_create
+        # - GET list/detail: open (anonymous users see empty queryset from get_queryset)
         if self.request.method == 'POST':
-            return [permissions.IsAuthenticated()]
+            return [permissions.AllowAny()]
         if self.request.method in permissions.SAFE_METHODS:
-            return [permissions.IsAuthenticated()]
+            return [permissions.AllowAny()]
         return [permissions.IsAdminUser()]
 
     def get_queryset(self):
@@ -1211,4 +1359,5 @@ class PartnershipViewSet(viewsets.ModelViewSet):
         return Partnership.objects.none()
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        user = self.request.user if self.request.user.is_authenticated else None
+        serializer.save(user=user)

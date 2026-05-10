@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from cloudinary.models import CloudinaryField
+from django_summernote.fields import SummernoteTextField
 
 
 class Sermon(models.Model):
@@ -48,6 +49,11 @@ class Sermon(models.Model):
 	views_count = models.PositiveIntegerField(default=0)
 	featured = models.BooleanField(default=False)
 	published = models.BooleanField(default=True)
+	# Shown on app “Kick-Off” audio list; API only returns if created within the last 5 days.
+	is_kickoff = models.BooleanField(
+		default=False,
+		help_text="Kick-Off tab (audio only): visible for 5 days from upload (created_at).",
+	)
 	date = models.DateField()
 	created_at = models.DateTimeField(auto_now_add=True)
 
@@ -162,7 +168,8 @@ class Book(models.Model):
 	author = models.CharField(max_length=255, blank=True)
 	description = models.TextField(blank=True)
 	cover_image = models.ImageField(upload_to='books/covers/', blank=True, null=True)
-	file = models.FileField(upload_to='books/files/')
+	# Raw delivery URLs use `/raw/upload/` on Cloudinary (correct for PDF/HTML files).
+	file = CloudinaryField('file', resource_type='raw')
 	file_type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES, default=FILE_PDF)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
@@ -172,6 +179,184 @@ class Book(models.Model):
 
 	def __str__(self) -> str:
 		return self.title
+
+
+class Devotional(models.Model):
+	title = models.CharField(max_length=255)
+	author = models.CharField(max_length=255, blank=True)
+	category = models.CharField(max_length=120, blank=True, db_index=True)
+	devotion_date = models.DateField(db_index=True)
+	scripture_reference = models.CharField(max_length=255, blank=True)
+	scripture_text = models.TextField(blank=True)
+	excerpt = models.TextField(
+		blank=True,
+		help_text='Optional teaser for lists; auto-filled from body when left blank.',
+	)
+	thumbnail = models.ImageField(upload_to='devotionals/thumbnails/', blank=True, null=True)
+	content = SummernoteTextField()
+	further_study = SummernoteTextField(blank=True)
+	golden_nugget = SummernoteTextField(blank=True)
+	prayer = SummernoteTextField(blank=True)
+	published = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-devotion_date', '-created_at']
+		verbose_name_plural = 'Devotionals'
+
+	def __str__(self) -> str:
+		return self.title
+
+	def save(self, *args, **kwargs):
+		if not (self.excerpt or '').strip():
+			from django.utils.html import strip_tags
+			plain = strip_tags(self.content or '').strip()
+			self.excerpt = (plain[:400] + ('…' if len(plain) > 400 else '')) if plain else ''
+		super().save(*args, **kwargs)
+
+
+class Crusade(models.Model):
+	"""City-wide gospel campaign / crusade (CFAN-style content)."""
+
+	title = models.CharField(max_length=255)
+	theme = models.CharField(max_length=500, blank=True)
+	description = models.TextField(blank=True)
+	banner_image = CloudinaryField(
+		'image',
+		resource_type='image',
+		blank=True,
+		null=True,
+	)
+	city = models.CharField(max_length=120)
+	country = models.CharField(max_length=120)
+	speaker = models.CharField(max_length=255, blank=True)
+	start_date = models.DateField(db_index=True)
+	end_date = models.DateField(db_index=True)
+	start_time = models.CharField(max_length=20, blank=True, help_text='e.g. 17:00')
+	end_time = models.CharField(max_length=20, blank=True)
+	livestream_url = models.URLField(blank=True)
+	souls_saved = models.PositiveIntegerField(default=0)
+	miracles_count = models.PositiveIntegerField(default=0)
+	attendance_count = models.PositiveIntegerField(default=0)
+	is_live = models.BooleanField(default=False, db_index=True)
+	published = models.BooleanField(default=True, db_index=True)
+	live_attendance = models.PositiveIntegerField(
+		default=0,
+		help_text='Shown on live crusade screen',
+	)
+	prayer_comments = models.PositiveIntegerField(default=0)
+	online_nations = models.PositiveIntegerField(default=0)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-start_date', '-created_at']
+
+	def __str__(self) -> str:
+		return self.title
+
+
+class CrusadeReport(models.Model):
+	crusade = models.ForeignKey(
+		Crusade,
+		on_delete=models.CASCADE,
+		related_name='reports',
+	)
+	title = models.CharField(max_length=255)
+	day_label = models.CharField(max_length=80, blank=True)
+	body = models.TextField()
+	image = CloudinaryField(
+		'image',
+		resource_type='image',
+		blank=True,
+		null=True,
+	)
+	order = models.PositiveSmallIntegerField(default=0)
+
+	class Meta:
+		ordering = ['order', 'id']
+
+	def __str__(self) -> str:
+		return f'{self.crusade_id} — {self.title}'
+
+
+class CrusadeTestimony(models.Model):
+	crusade = models.ForeignKey(
+		Crusade,
+		on_delete=models.CASCADE,
+		related_name='testimonies',
+	)
+	name = models.CharField(max_length=120)
+	image = models.URLField(max_length=500, blank=True)
+	testimony = models.TextField()
+	miracle_type = models.CharField(max_length=80, blank=True)
+	order = models.PositiveSmallIntegerField(default=0)
+
+	class Meta:
+		ordering = ['order', 'id']
+		verbose_name_plural = 'Crusade testimonies'
+
+	def __str__(self) -> str:
+		return f'{self.name} ({self.crusade_id})'
+
+
+class CrusadeGalleryItem(models.Model):
+	crusade = models.ForeignKey(
+		Crusade,
+		on_delete=models.CASCADE,
+		related_name='gallery_items',
+	)
+	image = CloudinaryField(
+		'image',
+		resource_type='image',
+		blank=True,
+		null=True,
+	)
+	is_video = models.BooleanField(default=False)
+	video_url = models.URLField(blank=True)
+	order = models.PositiveSmallIntegerField(default=0)
+
+	class Meta:
+		ordering = ['order', 'id']
+
+	def __str__(self) -> str:
+		return f'Gallery {self.pk} ({self.crusade_id})'
+
+
+class CrusadeVideo(models.Model):
+	crusade = models.ForeignKey(
+		Crusade,
+		on_delete=models.CASCADE,
+		related_name='videos',
+	)
+	title = models.CharField(max_length=255)
+	youtube_url = models.URLField(blank=True)
+	youtube_id = models.CharField(max_length=32, blank=True)
+	order = models.PositiveSmallIntegerField(default=0)
+
+	class Meta:
+		ordering = ['order', 'id']
+
+	def __str__(self) -> str:
+		return self.title
+
+
+class GospelImpactStats(models.Model):
+	"""Singleton-style counters for the Crusades home “Gospel impact” section."""
+
+	total_souls = models.PositiveIntegerField(default=0)
+	total_miracles = models.PositiveIntegerField(default=0)
+	total_nations = models.PositiveIntegerField(default=0)
+	total_crusades = models.PositiveIntegerField(default=0)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		verbose_name = 'Gospel impact statistics'
+		verbose_name_plural = 'Gospel impact statistics'
+
+	def __str__(self) -> str:
+		return 'Gospel impact (singleton)'
 
 
 class Feedback(models.Model):
