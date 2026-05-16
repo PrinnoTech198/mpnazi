@@ -164,17 +164,18 @@ class RepresentativeAdmin(admin.ModelAdmin):
 	readonly_fields = ('created_at',)
 
 
-from .models import Payment
+from .models import PartnerType, Partnership, Payment
 
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-	list_display = ('id', 'order', 'amount', 'provider', 'status', 'provider_transaction_id', 'created_at')
+	list_display = (
+		'id', 'order', 'partnership', 'amount', 'provider', 'status',
+		'external_reference', 'provider_transaction_id', 'utility_reference', 'created_at',
+	)
 	list_filter = ('provider', 'status', 'created_at')
 	readonly_fields = ('raw_response', 'created_at')
-
-
-from .models import PartnerType, Partnership
+	search_fields = ('external_reference', 'provider_transaction_id', 'utility_reference')
 
 
 @admin.register(PartnerType)
@@ -192,43 +193,44 @@ class PartnershipAdmin(admin.ModelAdmin):
 
 
 from .models import (
-	Crusade,
-	CrusadeGalleryItem,
-	CrusadeReport,
-	CrusadeTestimony,
-	CrusadeVideo,
+	Event,
+	EventGalleryItem,
+	EventReport,
+	EventTestimony,
+	EventVideo,
 	GospelImpactStats,
 )
 
 
-class CrusadeReportInline(admin.TabularInline):
-	model = CrusadeReport
+class EventReportInline(admin.TabularInline):
+	model = EventReport
 	extra = 0
 	ordering = ('order', 'id')
 
 
-class CrusadeTestimonyInline(admin.TabularInline):
-	model = CrusadeTestimony
+class EventTestimonyInline(admin.TabularInline):
+	model = EventTestimony
 	extra = 0
 	ordering = ('order', 'id')
 
 
-class CrusadeGalleryItemInline(admin.TabularInline):
-	model = CrusadeGalleryItem
+class EventGalleryItemInline(admin.TabularInline):
+	model = EventGalleryItem
 	extra = 0
 	ordering = ('order', 'id')
 
 
-class CrusadeVideoInline(admin.TabularInline):
-	model = CrusadeVideo
+class EventVideoInline(admin.TabularInline):
+	model = EventVideo
 	extra = 0
 	ordering = ('order', 'id')
 
 
-@admin.register(Crusade)
-class CrusadeAdmin(admin.ModelAdmin):
+@admin.register(Event)
+class EventAdmin(admin.ModelAdmin):
 	list_display = (
 		'title',
+		'event_type',
 		'city',
 		'country',
 		'start_date',
@@ -237,17 +239,17 @@ class CrusadeAdmin(admin.ModelAdmin):
 		'published',
 		'created_at',
 	)
-	list_filter = ('is_live', 'published', 'country', 'start_date')
+	list_filter = ('event_type', 'is_live', 'published', 'country', 'start_date')
 	search_fields = ('title', 'theme', 'description', 'city', 'speaker')
 	readonly_fields = ('created_at', 'updated_at')
 	inlines = [
-		CrusadeReportInline,
-		CrusadeTestimonyInline,
-		CrusadeGalleryItemInline,
-		CrusadeVideoInline,
+		EventReportInline,
+		EventTestimonyInline,
+		EventGalleryItemInline,
+		EventVideoInline,
 	]
 	fieldsets = (
-		(None, {'fields': ('title', 'theme', 'description', 'speaker', 'published', 'is_live')}),
+		(None, {'fields': ('title', 'event_type', 'theme', 'description', 'speaker', 'published', 'is_live')}),
 		('Location & dates', {'fields': ('city', 'country', 'start_date', 'end_date', 'start_time', 'end_time')}),
 		('Media', {'fields': ('banner_image', 'livestream_url')}),
 		('Stats', {'fields': ('souls_saved', 'miracles_count', 'attendance_count')}),

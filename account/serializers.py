@@ -1,3 +1,5 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from rest_framework import serializers
 from .models import Sermon
 from urllib.parse import urlparse, parse_qs
@@ -164,7 +166,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'service', 'quantity', 'price']
+        fields = ['id', 'service', 'quantity', 'price', 'duration_hours', 'line_note']
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -172,7 +174,23 @@ class OrderSerializer(serializers.ModelSerializer):
     representative = serializers.SerializerMethodField()
     class Meta:
         model = Order
-        fields = ['id', 'user', 'total_amount', 'status', 'created_at', 'items', 'representative']
+        fields = [
+            'id',
+            'user',
+            'total_amount',
+            'status',
+            'created_at',
+            'customer_note',
+            'fulfillment_status',
+            'pickup_country',
+            'pickup_region',
+            'pickup_district',
+            'pickup_ward',
+            'pickup_village',
+            'pickup_landmark',
+            'items',
+            'representative',
+        ]
 
     def get_representative(self, obj):
         rep = getattr(obj, 'representative', None)
@@ -187,27 +205,27 @@ from .models import Profile
 
 class ProfileSerializer(serializers.ModelSerializer):
     avatar = serializers.ImageField(required=False, allow_null=True)
+    email_verified = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
-        fields = ['avatar', 'gender', 'age_group', 'phone', 'city', 'share_profile_data', 'role']
+        fields = [
+            'avatar',
+            'gender',
+            'age_group',
+            'phone',
+            'city',
+            'share_profile_data',
+            'role',
+            'email_verified_at',
+            'email_verified',
+        ]
+
+    def get_email_verified(self, obj):
+        return obj.email_verified_at is not None
 
 
 from .models import Representative
-
-from .models import Payment, Order
-
-
-class PaymentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Payment
-        fields = ['id', 'order', 'amount', 'provider', 'transaction_id', 'status', 'raw_response', 'created_at']
-
-
-class OrderStatusSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Order
-        fields = ['id', 'status', 'payment_method', 'transaction_id', 'external_reference']
 
 
 class RepresentativeSerializer(serializers.ModelSerializer):
@@ -229,6 +247,12 @@ class PartnerTypeSerializer(serializers.ModelSerializer):
 
 class PartnershipSerializer(serializers.ModelSerializer):
     partner_type_name = serializers.CharField(source='partner_type.name', read_only=True)
+    guest_email = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        write_only=False,
+        max_length=254,
+    )
 
     class Meta:
         model = Partnership
@@ -237,6 +261,7 @@ class PartnershipSerializer(serializers.ModelSerializer):
             'user',
             'partner_type',
             'partner_type_name',
+            'guest_email',
             'amount',
             'currency',
             'gift_type',
@@ -246,11 +271,41 @@ class PartnershipSerializer(serializers.ModelSerializer):
             'street',
             'district',
             'ward',
+            'paid_at',
             'created_at',
         ]
-        read_only_fields = ['user', 'created_at', 'partner_type_name']
+        read_only_fields = ['user', 'created_at', 'partner_type_name', 'paid_at']
 
     def validate(self, attrs):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user and user.is_authenticated:
+            attrs.pop('guest_email', None)
+        else:
+            raw = (attrs.get('guest_email') or '').strip()
+            if not raw:
+                init = getattr(self, 'initial_data', None)
+                if init is not None and hasattr(init, 'get'):
+                    ge = init.get('guest_email')
+                    if ge in (None, '', []):
+                        ge = init.get('guestEmail')
+                    if isinstance(ge, (list, tuple)) and ge:
+                        ge = ge[0]
+                    raw = str(ge or '').strip()
+            if not raw and self.instance:
+                raw = (self.instance.guest_email or '').strip()
+            if not raw:
+                raise serializers.ValidationError(
+                    {'guest_email': 'A valid email address is required for guest partner giving.'}
+                )
+            try:
+                validate_email(raw)
+            except DjangoValidationError:
+                raise serializers.ValidationError(
+                    {'guest_email': 'Please enter a valid email address.'}
+                )
+            attrs['guest_email'] = raw.lower()
+
         gift_type = attrs.get('gift_type') or getattr(self.instance, 'gift_type', None)
         frequency = attrs.get('frequency') or getattr(self.instance, 'frequency', None)
         if gift_type == Partnership.GIFT_RECURRING and not frequency:

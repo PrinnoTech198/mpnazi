@@ -216,10 +216,25 @@ class Devotional(models.Model):
 		super().save(*args, **kwargs)
 
 
-class Crusade(models.Model):
-	"""City-wide gospel campaign / crusade (CFAN-style content)."""
+class EventType(models.TextChoices):
+	CRUSADE = 'crusade', 'Crusade'
+	SEMINAR = 'seminar', 'Seminar'
+	CONFERENCE = 'conference', 'Conference'
+	REVIVAL = 'revival', 'Revival'
+	KONGAMANO = 'kongamano', 'Kongamano'
+	MKUTANO = 'mkutano', 'Mkutano'
+
+
+class Event(models.Model):
+	"""Unified ministry event. Existing crusade rows remain stored in the original table."""
 
 	title = models.CharField(max_length=255)
+	event_type = models.CharField(
+		max_length=24,
+		choices=EventType.choices,
+		default=EventType.CRUSADE,
+		db_index=True,
+	)
 	theme = models.CharField(max_length=500, blank=True)
 	description = models.TextField(blank=True)
 	banner_image = CloudinaryField(
@@ -251,17 +266,29 @@ class Crusade(models.Model):
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
-		ordering = ['-start_date', '-created_at']
+		ordering = ['-created_at', '-start_date']
+		db_table = 'account_crusade'
+		indexes = [
+			models.Index(
+				fields=['event_type', 'published', 'is_live'],
+				name='acct_event_type_pub_live_idx',
+			),
+			models.Index(
+				fields=['event_type', 'start_date'],
+				name='acct_event_type_start_idx',
+			),
+		]
 
 	def __str__(self) -> str:
 		return self.title
 
 
-class CrusadeReport(models.Model):
-	crusade = models.ForeignKey(
-		Crusade,
+class EventReport(models.Model):
+	event = models.ForeignKey(
+		Event,
 		on_delete=models.CASCADE,
 		related_name='reports',
+		db_column='crusade_id',
 	)
 	title = models.CharField(max_length=255)
 	day_label = models.CharField(max_length=80, blank=True)
@@ -276,16 +303,18 @@ class CrusadeReport(models.Model):
 
 	class Meta:
 		ordering = ['order', 'id']
+		db_table = 'account_crusadereport'
 
 	def __str__(self) -> str:
-		return f'{self.crusade_id} — {self.title}'
+		return f'{self.event_id} — {self.title}'
 
 
-class CrusadeTestimony(models.Model):
-	crusade = models.ForeignKey(
-		Crusade,
+class EventTestimony(models.Model):
+	event = models.ForeignKey(
+		Event,
 		on_delete=models.CASCADE,
 		related_name='testimonies',
+		db_column='crusade_id',
 	)
 	name = models.CharField(max_length=120)
 	image = models.URLField(max_length=500, blank=True)
@@ -295,17 +324,19 @@ class CrusadeTestimony(models.Model):
 
 	class Meta:
 		ordering = ['order', 'id']
-		verbose_name_plural = 'Crusade testimonies'
+		verbose_name_plural = 'Event testimonies'
+		db_table = 'account_crusadetestimony'
 
 	def __str__(self) -> str:
-		return f'{self.name} ({self.crusade_id})'
+		return f'{self.name} ({self.event_id})'
 
 
-class CrusadeGalleryItem(models.Model):
-	crusade = models.ForeignKey(
-		Crusade,
+class EventGalleryItem(models.Model):
+	event = models.ForeignKey(
+		Event,
 		on_delete=models.CASCADE,
 		related_name='gallery_items',
+		db_column='crusade_id',
 	)
 	image = CloudinaryField(
 		'image',
@@ -319,16 +350,18 @@ class CrusadeGalleryItem(models.Model):
 
 	class Meta:
 		ordering = ['order', 'id']
+		db_table = 'account_crusadegalleryitem'
 
 	def __str__(self) -> str:
-		return f'Gallery {self.pk} ({self.crusade_id})'
+		return f'Gallery {self.pk} ({self.event_id})'
 
 
-class CrusadeVideo(models.Model):
-	crusade = models.ForeignKey(
-		Crusade,
+class EventVideo(models.Model):
+	event = models.ForeignKey(
+		Event,
 		on_delete=models.CASCADE,
 		related_name='videos',
+		db_column='crusade_id',
 	)
 	title = models.CharField(max_length=255)
 	youtube_url = models.URLField(blank=True)
@@ -337,6 +370,7 @@ class CrusadeVideo(models.Model):
 
 	class Meta:
 		ordering = ['order', 'id']
+		db_table = 'account_crusadevideo'
 
 	def __str__(self) -> str:
 		return self.title
@@ -456,6 +490,8 @@ class Partnership(models.Model):
 		null=True,
 		blank=True,
 	)
+	# Anonymous partner giving: required when user is null; confirmation email target.
+	guest_email = models.EmailField(blank=True, null=True, max_length=254)
 	partner_type = models.ForeignKey(
 		PartnerType,
 		on_delete=models.PROTECT,
@@ -479,6 +515,8 @@ class Partnership(models.Model):
 	street = models.CharField(max_length=255, blank=True)
 	district = models.CharField(max_length=120, blank=True)
 	ward = models.CharField(max_length=120, blank=True)
+	# Set when an AzamPay (or other) partnership gift succeeds
+	paid_at = models.DateTimeField(blank=True, null=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
@@ -525,6 +563,39 @@ class Order(models.Model):
 	# Optional representative assigned to this order
 	representative = models.ForeignKey('Representative', on_delete=models.SET_NULL, related_name='orders', null=True, blank=True)
 
+	# Checkout / cart note (DB may already enforce NOT NULL; keep default empty)
+	customer_note = models.TextField(blank=True, default='')
+
+	# Denormalized pickup lifecycle (aligned with cart_payment.CartOrderFulfillment)
+	FF_PENDING = 'PENDING'
+	FF_PROCESSING = 'PROCESSING'
+	FF_SENT_TO_REP = 'SENT_TO_REPRESENTATIVE'
+	FF_AT_REP = 'ARRIVED_AT_REPRESENTATIVE'
+	FF_READY = 'READY_FOR_PICKUP'
+	FF_COMPLETED = 'COMPLETED'
+	FULFILLMENT_STATUS_CHOICES = [
+		(FF_PENDING, 'Pending'),
+		(FF_PROCESSING, 'Processing'),
+		(FF_SENT_TO_REP, 'Sent to representative'),
+		(FF_AT_REP, 'Arrived at representative'),
+		(FF_READY, 'Ready for pickup'),
+		(FF_COMPLETED, 'Completed'),
+	]
+	fulfillment_status = models.CharField(
+		max_length=40,
+		choices=FULFILLMENT_STATUS_CHOICES,
+		default=FF_PENDING,
+		db_index=True,
+	)
+
+	# Pickup / delivery snapshot (DB may enforce NOT NULL; empty string = unspecified)
+	pickup_country = models.CharField(max_length=255, blank=True, default='')
+	pickup_region = models.CharField(max_length=255, blank=True, default='')
+	pickup_district = models.CharField(max_length=255, blank=True, default='')
+	pickup_ward = models.CharField(max_length=255, blank=True, default='')
+	pickup_village = models.CharField(max_length=255, blank=True, default='')
+	pickup_landmark = models.CharField(max_length=255, blank=True, default='')
+
 	class Meta:
 		ordering = ['-created_at']
 
@@ -537,6 +608,8 @@ class OrderItem(models.Model):
 	service = models.ForeignKey(Service, on_delete=models.PROTECT)
 	quantity = models.PositiveIntegerField(default=1)
 	price = models.DecimalField(max_digits=10, decimal_places=2)
+	duration_hours = models.PositiveIntegerField(default=1)
+	line_note = models.TextField(blank=True, default='')
 
 	def __str__(self) -> str:
 		return f"{self.quantity} x {self.service.title}"
@@ -544,6 +617,7 @@ class OrderItem(models.Model):
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
 
 class Payment(models.Model):
 
@@ -566,7 +640,17 @@ class Payment(models.Model):
     order = models.ForeignKey(
         Order,
         on_delete=models.CASCADE,
-        related_name='payments'
+        related_name='payments',
+        null=True,
+        blank=True,
+    )
+
+    partnership = models.ForeignKey(
+        Partnership,
+        on_delete=models.CASCADE,
+        related_name='payments',
+        null=True,
+        blank=True,
     )
 
     amount = models.DecimalField(
@@ -580,13 +664,21 @@ class Payment(models.Model):
         default=PROVIDER_AZAMPAY
     )
 
-    # YOUR INTERNAL REFERENCE
+    # YOUR INTERNAL REFERENCE (checkout externalId; prefer uuid4().hex — no hyphens)
     external_reference = models.CharField(
         max_length=255,
         unique=True,
         db_index=True,
-		null=True,
-		blank=True
+        null=True,
+        blank=True,
+    )
+
+    # Normalized external id for webhook lookup (lowercase, alphanumeric only)
+    external_reference_norm = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        db_index=True,
     )
 
     # AZAMPAY TRANSACTION ID
@@ -595,6 +687,13 @@ class Payment(models.Model):
         blank=True,
         null=True,
         db_index=True
+    )
+
+    # Operator reference from webhook (utilityref)
+    utility_reference = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
     )
 
     status = models.CharField(
@@ -608,14 +707,35 @@ class Payment(models.Model):
         null=True
     )
 
+    completed_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(
         auto_now_add=True
     )
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(order__isnull=False, partnership__isnull=True)
+                    | models.Q(order__isnull=True, partnership__isnull=False)
+                ),
+                name='account_payment_order_xor_partnership',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        ref = (self.external_reference or '').strip()
+        if ref:
+            self.external_reference_norm = ''.join(c for c in ref.lower() if c.isalnum())
+        else:
+            self.external_reference_norm = None
+        super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.partnership_id:
+            return f"Payment {self.id} for Partnership {self.partnership_id} - {self.status}"
         return f"Payment {self.id} for Order {self.order_id} - {self.status}"
 
 
@@ -649,9 +769,42 @@ class Payment(models.Model):
 # 		return f"Payment {self.id} for Order {self.order_id} - {self.status}"
 
 
+class EmailOTPChallenge(models.Model):
+	"""Time-bound email OTP for registration or password reset (single-use, hashed)."""
+
+	PURPOSE_REGISTRATION = 'registration'
+	PURPOSE_PASSWORD_RESET = 'password_reset'
+	PURPOSE_CHOICES = [
+		(PURPOSE_REGISTRATION, 'Registration'),
+		(PURPOSE_PASSWORD_RESET, 'Password reset'),
+	]
+
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='email_otp_challenges',
+	)
+	purpose = models.CharField(max_length=32, choices=PURPOSE_CHOICES, db_index=True)
+	code_hash = models.CharField(max_length=128)
+	expires_at = models.DateTimeField(db_index=True)
+	used_at = models.DateTimeField(blank=True, null=True)
+	failed_attempts = models.PositiveSmallIntegerField(default=0)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [
+			models.Index(fields=['user', 'purpose', 'used_at'], name='acct_eotp_user_purp_used'),
+		]
+
+	def __str__(self):
+		return f'OTP {self.purpose} for {self.user_id}'
+
+
 class Profile(models.Model):
 	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
 	avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
+	email_verified_at = models.DateTimeField(blank=True, null=True)
 	gender = models.CharField(max_length=20, blank=True)
 	age_group = models.CharField(max_length=50, blank=True)
 	phone = models.CharField(max_length=30, blank=True)

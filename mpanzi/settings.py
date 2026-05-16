@@ -35,9 +35,9 @@ SECRET_KEY = "django-insecure-kav^xz_pq#^pqyx^%g(t+ei2nrpkler)jggy60eq%u(me(7*dq
 DEBUG = True
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
-ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*',"192.168.1.189", "causal-gratify-carat.ngrok-free.dev"]
+ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*',"192.168.1.189", "0.0.0.0","causal-gratify-carat.ngrok-free.dev"]
 
-CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "http://127.0.0.1:8000"]
+CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "http://127.0.0.1:8000", "http://localhost:8000"]
 
 # Application definition
 
@@ -53,6 +53,10 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "rest_framework_simplejwt",
     "account",
+    "cart_payment",
+    "django_q",
+    "notifications",
+    "app_version",
 
     "django_summernote",
     'cloudinary',
@@ -83,7 +87,7 @@ SUMMERNOTE_CONFIG = {
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
-    # Public content by default; lock down sensitive endpoints explicitly (payment, orders, profile).
+    # Public content by default; lock down sensitive endpoints explicitly (e.g. orders, profile).
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny',
     ),
@@ -116,6 +120,14 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "mpanzi.urls"
+
+# LocMem default; swap for Redis/Memcached in multi-instance production.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "mpanzi-default-cache",
+    }
+}
 
 TEMPLATES = [
     {
@@ -242,32 +254,66 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 
-# AzamPay configuration - loaded from environment. Do NOT commit secrets.
-# AZAMPAY_APP_NAME = os.environ.get('AZAMPAY_APP_NAME')
-# AZAMPAY_CLIENT_ID = os.environ.get('AZAMPAY_CLIENT_ID')
-# AZAMPAY_CLIENT_SECRET = os.environ.get('AZAMPAY_CLIENT_SECRET')
-# AZAMPAY_BASE_URL = os.environ.get('AZAMPAY_BASE_URL')
-# AZAMPAY_CALLBACK_URL = os.environ.get('AZAMPAY_CALLBACK_URL')
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "innocentphilbert39@gmail.com")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "lxtc pnvq lboz czed")
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    "Mpanzi Ministries <innocentphilbert39@gmail.com>",
+)
 
-# Basic validation during startup (helpful in development)
-AZAMPAY_AUTH_BASE_URL= "https://authenticator-sandbox.azampay.co.tz"
-AZAMPAY_API_BASE_URL="https://sandbox.azampay.co.tz"
-AZAMPAY_CLIENT_ID="474cba96-1296-4b5d-80db-e09c56f57762"
-AZAMPAY_CLIENT_SECRET="U93YbqvOy5q4yevipbl7CaAOy91WVlS0XC+T1CC8sPK5UAAOmWQdKld6Qd2MgYnYC4G4viczKToWvHBX07LoJhXBph9nY6Ufyp6twwpOzOAIXsnvkJntpSOwCx6I2Aw1AmDAfMr2/Qrt3C6KoGMKfX0keN6Z+BVVjHTlyqMrkHlJehlqQ8IAPGQ0aK5FK8jYr2bkHU16pzSR8x19HbOKxLLJTaQpNpQMIOmwwwUDkn5LPEa//liAydf9ZAhFlhfq92uZcvd7qYVSdKrKop9XXGIuQfqWz6f/jr8Srm5r6vntTnGo6GBlrMiRHlywCS8TgA91R48I0h/kL+8U1kh7iSJYvos5fl1bFnTFps3fbNHGjzC/It/gINxMeshja07WXnbBiZgeXGoSiU/OLv/JJPsbkmV2S91ynIzjNnOaMZiybhVGcMWMi3+KtnU/Vxh7e8YNxC87pmsGL7lHTzy7iDV135Jqgh8/782N4MSkgCCRWeoswHKzjcEeCsifbVmzieq9KcNX6tLhUPnrgv0X7/RJXgJkBQ/34PqUewnUIAymXWix6dFz/gGsnqxvUXQJIDlg1gZ/IuHFLyGxUhgFx4yhQoGEM3YhjUQZEaXo2U7iE9uj9qr2sSVtELYt8UhgSv2cxLLkuaIvA71OLwxK04iaU/h4m0H0p+srBdk1kKI="
-# AZAMPAY_CALLBACK_URL="https://abc123.ngrok.io/api/payments/azampay/callback/""
-AZAMPAY_CALLBACK_URL="https://causal-gratify-carat.ngrok-free.dev/api/payments/webhook/"
-AZAMPAY_APP_NAME="housekeeper"
+# AzamPay — load secrets from environment (sandbox vs production URLs differ).
+AZAMPAY_AUTH_BASE_URL = os.environ.get(
+    "AZAMPAY_AUTH_BASE_URL", "https://authenticator-sandbox.azampay.co.tz"
+)
+AZAMPAY_API_BASE_URL = os.environ.get(
+    "AZAMPAY_API_BASE_URL", "https://sandbox.azampay.co.tz"
+)
+AZAMPAY_APP_NAME = os.environ.get("AZAMPAY_APP_NAME", "housekeeper")
+AZAMPAY_CLIENT_ID = os.environ.get(
+    "AZAMPAY_CLIENT_ID", "474cba96-1296-4b5d-80db-e09c56f57762"
+)
+AZAMPAY_CLIENT_SECRET = os.environ.get(
+    "AZAMPAY_CLIENT_SECRET",
+    "U93YbqvOy5q4yevipbl7CaAOy91WVlS0XC+T1CC8sPK5UAAOmWQdKld6Qd2MgYnYC4G4viczKToWvHBX07LoJhXBph9nY6Ufyp6twwpOzOAIXsnvkJntpSOwCx6I2Aw1AmDAfMr2/Qrt3C6KoGMKfX0keN6Z+BVVjHTlyqMrkHlJehlqQ8IAPGQ0aK5FK8jYr2bkHU16pzSR8x19HbOKxLLJTaQpNpQMIOmwwwUDkn5LPEa//liAydf9ZAhFlhfq92uZcvd7qYVSdKrKop9XXGIuQfqWz6f/jr8Srm5r6vntTnGo6GBlrMiRHlywCS8TgA91R48I0h/kL+8U1kh7iSJYvos5fl1bFnTFps3fbNHGjzC/It/gINxMeshja07WXnbBiZgeXGoSiU/OLv/JJPsbkmV2S91ynIzjNnOaMZiybhVGcMWMi3+KtnU/Vxh7e8YNxC87pmsGL7lHTzy7iDV135Jqgh8/782N4MSkgCCRWeoswHKzjcEeCsifbVmzieq9KcNX6tLhUPnrgv0X7/RJXgJkBQ/34PqUewnUIAymXWix6dFz/gGsnqxvUXQJIDlg1gZ/IuHFLyGxUhgFx4yhQoGEM3YhjUQZEaXo2U7iE9uj9qr2sSVtELYt8UhgSv2cxLLkuaIvA71OLwxK04iaU/h4m0H0p+srBdk1kKI=",
+)
+# Required in production checkout calls; optional in sandbox
+AZAMPAY_X_API_KEY = os.environ.get("AZAMPAY_X_API_KEY", "")
+# Partner giving webhook (must match portal + reachable from internet)
+AZAMPAY_CALLBACK_URL = os.environ.get(
+    "AZAMPAY_CALLBACK_URL",
+    "https://causal-gratify-carat.ngrok-free.dev/api/payments/webhook/",
+).strip()
+
+# Cart checkout webhook — MUST differ from partner URL; register this in AzamPay for cart.
+_default_cart_cb = (
+    AZAMPAY_CALLBACK_URL.replace("/payments/webhook/", "/cart-payment/webhook/")
+    .replace("/payments/webhook", "/cart-payment/webhook")
+    .rstrip("/")
+)
+CART_AZAMPAY_CALLBACK_URL = (
+    os.environ.get("CART_AZAMPAY_CALLBACK_URL", "").strip() or _default_cart_cb
+)
+
 # Ruhusu trailing slash automatically
 APPEND_SLASH = True
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ── FCM HTTP v1 (Google service account JSON string in env; never commit) ──
+FCM_PROJECT_ID = os.environ.get("FCM_PROJECT_ID", "").strip()
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 
-# AZAMPAY_BASE_URL = config('AZAMPAY_BASE_URL', default='')
-# AZAMPAY_APP_NAME = config('AZAMPAY_APP_NAME', default='')
-# AZAMPAY_CLIENT_ID = config('AZAMPAY_CLIENT_ID', default='')
-# AZAMPAY_CLIENT_SECRET = config('AZAMPAY_CLIENT_SECRET', default='')
-# AZAMPAY_CALLBACK_URL = config('AZAMPAY_CALLBACK_URL', default='')
-
-
-# print("AZAMPAY_AUTH_BASE_URL:", AZAMPAY_AUTH_BASE_URL)
-# print("AZAMPAY_API_BASE_URL:", AZAMPAY_API_BASE_URL)
+# Django-Q2: run `python manage.py qcluster` alongside gunicorn to process push tasks.
+Q_CLUSTER = {
+    "name": "mpanzi",
+    "workers": 2,
+    "timeout": 120,
+    "retry": 180,
+    "queue_limit": 64,
+    "orm": "default",
+    "bulk": 10,
+}

@@ -7,8 +7,9 @@ so even AllowAny / PublicReadAdminWrite endpoints return 401. Optional JWT
 treats bad tokens like "no auth" so public reads still work.
 """
 
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 
 class OptionalJWTAuthentication(JWTAuthentication):
@@ -20,17 +21,20 @@ class OptionalJWTAuthentication(JWTAuthentication):
     """
 
     def authenticate(self, request):
-        header = self.get_header(request)
-        if header is None:
-            return None
-
-        raw_token = self.get_raw_token(header)
-        if raw_token is None:
-            return None
-
         try:
-            validated_token = self.get_validated_token(raw_token)
-        except TokenError:
-            return None
+            header = self.get_header(request)
+            if header is None:
+                return None
 
-        return self.get_user(validated_token), validated_token
+            raw_token = self.get_raw_token(header)
+            if raw_token is None:
+                return None
+
+            validated_token = self.get_validated_token(raw_token)
+            user = self.get_user(validated_token)
+            return user, validated_token
+        except (TokenError, InvalidToken, AuthenticationFailed):
+            return None
+        except Exception:
+            # Any malformed/expired credential on public endpoints should not 401.
+            return None

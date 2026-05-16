@@ -12,21 +12,22 @@ from .models import Book
 from .models import Feedback
 from .models import Service, Order, OrderItem, Representative, PartnerType, Partnership, Devotional
 from .models import (
-    Crusade,
-    CrusadeGalleryItem,
-    CrusadeReport,
-    CrusadeTestimony,
-    CrusadeVideo,
+    Event,
+    EventGalleryItem,
+    EventReport,
+    EventTestimony,
+    EventType,
+    EventVideo,
     GospelImpactStats,
 )
 from django.db.models import Prefetch
 from .crusades_serializers import (
-    CrusadeDetailSerializer,
-    CrusadeGalleryItemSerializer,
-    CrusadeReportSerializer,
-    CrusadeSerializer,
-    CrusadeTestimonySerializer,
-    CrusadeVideoSerializer,
+    EventDetailSerializer,
+    EventGalleryItemSerializer,
+    EventReportSerializer,
+    EventSerializer,
+    EventTestimonySerializer,
+    EventVideoSerializer,
 )
 from .serializers import AnnouncementSerializer, NewsSerializer, NewsImageSerializer, TimetableSerializer, BookSerializer, FeedbackSerializer, ServiceSerializer, OrderSerializer, OrderItemSerializer, RepresentativeSerializer, PartnerTypeSerializer, PartnershipSerializer, DevotionalListSerializer, DevotionalDetailSerializer
 
@@ -34,37 +35,18 @@ from rest_framework import permissions, parsers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.decorators import authentication_classes
 from rest_framework.authtoken.models import Token
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.models import User
 from .models import Profile
 from .serializers import ProfileSerializer
 from rest_framework import status
-from rest_framework.views import APIView
-from rest_framework.parsers import JSONParser
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.shortcuts import get_object_or_404
-from uuid import uuid4
-from .services.azampay import AzamPayClient
-from .models import Payment, Order
-from .serializers import PaymentSerializer, OrderStatusSerializer
 from .permissions import PublicReadAdminWrite
-from django.conf import settings
 from django.utils import timezone as django_timezone
 from datetime import timedelta
-import hmac
-import hashlib
-import json
 import logging
-import requests  # ← Hakikisha hii ipo juu ya file
-from requests.exceptions import ReadTimeout, RequestException
 
 logger = logging.getLogger(__name__)
-
-# Note: AzamPayClient will be instantiated per-request to avoid import-time side effects
-
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -252,26 +234,34 @@ class DevotionalViewSet(viewsets.ModelViewSet):
         return qs.order_by('-devotion_date', '-created_at')
 
 
-class CrusadeViewSet(viewsets.ModelViewSet):
+class EventViewSet(viewsets.ModelViewSet):
     """Public read; staff CRUD. Nested reports/testimonies/gallery/videos on retrieve."""
 
-    queryset = Crusade.objects.all()
+    queryset = Event.objects.all()
     permission_classes = [PublicReadAdminWrite]
     pagination_class = StandardResultsSetPagination
     filter_backends = [drf_filters.OrderingFilter]
-    ordering_fields = ['start_date', 'created_at', 'id']
-    ordering = ['-start_date']
+    ordering_fields = ['start_date', 'created_at', 'id', 'event_type']
+    ordering = ['-created_at', '-start_date']
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
-            return CrusadeDetailSerializer
-        return CrusadeSerializer
+            return EventDetailSerializer
+        return EventSerializer
 
     def get_queryset(self):
-        qs = Crusade.objects.all()
+        qs = Event.objects.all()
         user = getattr(self.request, 'user', None)
         if not (user and user.is_staff):
             qs = qs.filter(published=True)
+        requested_type = (
+            self.request.query_params.get('event_type') or ''
+        ).strip().lower()
+        allowed_types = {choice.value for choice in EventType}
+        if requested_type in allowed_types:
+            qs = qs.filter(event_type=requested_type)
+        elif getattr(self, 'basename', '') == 'crusade':
+            qs = qs.filter(event_type=EventType.CRUSADE)
         live = self.request.query_params.get('live')
         if live is not None and str(live).lower() in ('1', 'true', 'yes'):
             qs = qs.filter(is_live=True)
@@ -288,22 +278,37 @@ class CrusadeViewSet(viewsets.ModelViewSet):
             qs = qs.prefetch_related(
                 Prefetch(
                     'reports',
-                    queryset=CrusadeReport.objects.order_by('order', 'id'),
+                    queryset=EventReport.objects.order_by('order', 'id'),
                 ),
                 Prefetch(
                     'testimonies',
-                    queryset=CrusadeTestimony.objects.order_by('order', 'id'),
+                    queryset=EventTestimony.objects.order_by('order', 'id'),
                 ),
                 Prefetch(
                     'gallery_items',
-                    queryset=CrusadeGalleryItem.objects.order_by('order', 'id'),
+                    queryset=EventGalleryItem.objects.order_by('order', 'id'),
                 ),
                 Prefetch(
                     'videos',
-                    queryset=CrusadeVideo.objects.order_by('order', 'id'),
+                    queryset=EventVideo.objects.order_by('order', 'id'),
                 ),
             )
         return qs
+
+    @action(detail=False, methods=['get'])
+    def types(self, request):
+        """Distinct event_type values that have at least one published event."""
+        published_values = set(
+            Event.objects.filter(published=True)
+            .values_list('event_type', flat=True)
+            .distinct()
+        )
+        payload = [
+            {'value': choice.value, 'label': choice.label}
+            for choice in EventType
+            if choice.value in published_values
+        ]
+        return Response(payload)
 
     @action(detail=False, methods=['get'], url_path='gospel-impact')
     def gospel_impact(self, request):
@@ -319,9 +324,9 @@ class CrusadeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='reports')
     def reports_list(self, request, pk=None):
-        crusade = self.get_object()
-        ser = CrusadeReportSerializer(
-            crusade.reports.all(),
+        event = self.get_object()
+        ser = EventReportSerializer(
+            event.reports.all(),
             many=True,
             context={'request': request},
         )
@@ -329,9 +334,9 @@ class CrusadeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='testimonies')
     def testimonies_list(self, request, pk=None):
-        crusade = self.get_object()
-        ser = CrusadeTestimonySerializer(
-            crusade.testimonies.all(),
+        event = self.get_object()
+        ser = EventTestimonySerializer(
+            event.testimonies.all(),
             many=True,
             context={'request': request},
         )
@@ -339,9 +344,9 @@ class CrusadeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='gallery')
     def gallery_list(self, request, pk=None):
-        crusade = self.get_object()
-        ser = CrusadeGalleryItemSerializer(
-            crusade.gallery_items.all(),
+        event = self.get_object()
+        ser = EventGalleryItemSerializer(
+            event.gallery_items.all(),
             many=True,
             context={'request': request},
         )
@@ -349,9 +354,9 @@ class CrusadeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='videos')
     def videos_list(self, request, pk=None):
-        crusade = self.get_object()
-        ser = CrusadeVideoSerializer(
-            crusade.videos.all(),
+        event = self.get_object()
+        ser = EventVideoSerializer(
+            event.videos.all(),
             many=True,
             context={'request': request},
         )
@@ -363,11 +368,15 @@ class CrusadeViewSet(viewsets.ModelViewSet):
         return Response(
             {
                 'crusade_id': str(c.pk),
+                'event_id': str(c.pk),
                 'live_attendance': c.live_attendance,
                 'prayer_comments': c.prayer_comments,
                 'online_nations': c.online_nations,
             }
         )
+
+
+CrusadeViewSet = EventViewSet
 
 
 class FeedbackViewSet(viewsets.ModelViewSet):
@@ -391,686 +400,6 @@ class FeedbackViewSet(viewsets.ModelViewSet):
             qs = qs.filter(is_read=False)
         return qs.order_by('-created_at')
 
-
-
-class InitiatePaymentAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        data = request.data
-        logger.info('InitiatePayment called by user=%s data=%s', getattr(request.user, 'id', None), data)
-        order_id = data.get('order_id')
-        method = data.get('payment_method')
-        phone = data.get('phone_number')
-        if not order_id or not method:
-            return Response({'detail': 'order_id and payment_method required'}, status=400)
-
-        try:
-            order = Order.objects.get(id=order_id, user=request.user)
-        except Order.DoesNotExist:
-            logger.warning('Order not found: %s for user %s', order_id, request.user)
-            return Response({'detail': 'Order not found'}, status=404)
-
-        if order.status not in (Order.STATUS_PENDING, Order.STATUS_FAILED):
-            return Response({'detail': 'Order not in a payable state'}, status=400)
-
-        external_ref = str(uuid4())
-
-        try:
-            client = AzamPayClient()
-        except Exception as e:
-            logger.exception('Failed to create AzamPayClient: %s', e)
-            return Response({'detail': f'Payment client init failed: {e}'}, status=500)
-
-        try:
-            # Ensure amounts are serializable (convert Decimal to string)
-            amount = order.total_amount
-            try:
-                # Decimal -> str
-                amount_to_send = str(amount)
-            except Exception:
-                amount_to_send = amount
-            if method == Order.PAYMENT_MOBILE:
-
-                if not phone:
-                    return Response({
-                        'detail': 'phone_number required'
-                    }, status=400)
-
-                # CREATE PAYMENT FIRST
-                payment = Payment.objects.create(
-                    order=order,
-                    amount=order.total_amount,
-                    external_reference=external_ref,
-                    status=Payment.STATUS_PENDING
-                )
-
-                # UPDATE ORDER
-                order.external_reference = external_ref
-                order.payment_method = Order.PAYMENT_MOBILE
-                order.status = Order.STATUS_PROCESSING
-                order.save()
-                try:
-
-                    resp = client.initiate_mobile_money(
-                        amount_to_send,
-                        phone,
-                        external_ref
-                    )
-
-                    provider_tx_id = (
-                        resp.get('transactionId')
-                        or resp.get('transaction_id')
-                        or resp.get('tx_id')
-                    )
-
-                    payment.provider_transaction_id = provider_tx_id
-                    payment.raw_response = resp
-                    payment.save()
-
-                    order.transaction_id = provider_tx_id
-                    order.save()
-
-                    return Response({
-                        'success': True,
-                        'transaction_id': external_ref,
-                        'message': 'Payment request sent. Waiting confirmation.',
-                        'messageCode': 0,
-                    }, status=200)
-
-                except ReadTimeout:
-
-                    logger.warning(
-                        "AzamPay timeout but webhook may still arrive"
-                    )
-
-                    return Response({
-                        'success': True,
-                        'message': 'Payment request sent. Waiting confirmation.',
-                        'status': 'PROCESSING'
-                    }, status=200)
-
-                except RequestException as e:
-
-                    payment.status = Payment.STATUS_FAILED
-                    payment.save()
-
-                    order.status = Order.STATUS_FAILED
-                    order.save()
-
-                    logger.exception("Payment failed")
-
-                    return Response({
-                        'detail': str(e)
-                    }, status=500)
-
-            # if method == Order.PAYMENT_MOBILE:
-            #     if not phone:
-            #         return Response({'detail': 'phone_number required for mobile money'}, status=400)
-            #     resp = client.initiate_mobile_money(amount_to_send, phone, external_ref)
-            #     transaction_id = resp.get('transactionId') or resp.get('transaction_id') or resp.get('tx_id')
-            #     provider_tx_id = resp.get('transactionId')
-            #     #payment = Payment.objects.create(order=order, amount=order.total_amount, transaction_id=transaction_id, raw_response=resp)
-            #     payment = Payment.objects.create(order=order, amount=order.total_amount, external_reference=external_ref, provider_transaction_id=provider_tx_id, raw_response=resp)
-            #     order.transaction_id = provider_tx_id
-            #     order.external_reference = external_ref
-            #     order.payment_method = Order.PAYMENT_MOBILE
-            #     order.status = Order.STATUS_PROCESSING
-            #     order.save()
-            #     return Response({'provider_response': resp}, status=200)
-
-            elif method == Order.PAYMENT_CARD:
-                resp = client.initiate_card(amount_to_send, external_ref)
-                checkout_url = resp.get('checkout_url') or resp.get('redirect_url')
-                transaction_id = resp.get('transactionId') or resp.get('transaction_id') or resp.get('tx_id')
-                payment = Payment.objects.create(order=order, amount=order.total_amount, external_reference=external_ref, provider_transaction_id=provider_tx_id, raw_response=resp)
-                order.transaction_id = provider_tx_id
-                order.external_reference = external_ref
-                order.payment_method = Order.PAYMENT_CARD
-                order.status = Order.STATUS_PROCESSING
-                order.save()
-                return Response({'checkout_url': checkout_url, 'provider_response': resp}, status=200)
-
-            else:
-                return Response({'detail': 'Unsupported payment_method'}, status=400)
-
-        except Exception as e:
-            logger.exception('Payment initiation failed for order=%s user=%s: %s', order_id, request.user, e)
-            # try to surface a readable message
-            msg = str(e)
-            return Response({'detail': f'Payment initiation failed: {msg}'}, status=500)
-
-# @method_decorator(csrf_exempt, name='dispatch')
-# class AzamPayWebhookAPIView(APIView):
-
-#     permission_classes = [permissions.AllowAny]
-#     parser_classes = [JSONParser]
-
-#     def post(self, request):
-
-#         print("WEBHOOK RECEIVED =>", request.data)
-
-#         payload = request.data
-
-#         # HANDLE ALL POSSIBLE FIELD NAMES
-#         external_ref = (
-#             payload.get('external_reference')
-#             or payload.get('externalreference')
-#             or payload.get('reference')
-#         )
-
-#         tx_id = (
-#             payload.get('transactionId')
-#             or payload.get('transaction_id')
-#             or payload.get('tx_id')
-#             or payload.get('transid')
-#         )
-
-#         # status_str = (
-#         #     payload.get('status')
-#         #     or payload.get('payment_status')
-#         #     or payload.get('transactionStatus')
-#         #     or payload.get('transactionstatus')
-#         #     or ''
-#         # )
-#         if status_str == "success":
-
-#             payment.status = Payment.STATUS_SUCCESS
-#             payment.raw_response = payload
-#             payment.save()
-
-#             order = payment.order
-#             order.status = Order.STATUS_PAID
-#             order.save()
-
-#             return Response({"success": True}, status=200)
-
-#         print("EXTERNAL REF =>", external_ref)
-#         print("TX ID =>", tx_id)
-#         print("STATUS =>", status_str)
-
-#         payment = None
-#         print("PAYMENT SAVED =>", payment.id)
-#         print("EXTERNAL REF SAVED =>", payment.external_reference)
-#         print("PROVIDER TX ID =>", payment.provider_transaction_id)
-
-#         # FIND PAYMENT
-#         if external_ref:
-#             payment = Payment.objects.filter(order__external_reference=external_ref).first()
-            
-
-#         if not payment and tx_id:
-#             payment = Payment.objects.filter(provider_transaction_id=tx_id).first()
-
-#         if not payment and external_ref:
-#             payment = Payment.objects.filter(external_reference=external_ref).first()
-
-
-#         #     payment = Payment.objects.filter(
-#         #         order__external_reference=external_ref
-#         #     ).first()
-
-#         # if not payment and tx_id:
-
-#         #     payment = Payment.objects.filter(
-#         #         transaction_id=tx_id
-#         #     ).first()
-
-#         print("MATCHED PAYMENT =>", payment)
-
-#         # PAYMENT NOT FOUND
-#         if not payment:
-
-#             logger.warning(
-#                 'Webhook received for unknown payment: %s',
-#                 payload
-#             )
-
-#             return Response({
-#                 'detail': 'Payment not found'
-#             }, status=404)
-
-#         # SAVE RAW RESPONSE
-#         payment.raw_response = payload
-
-#         # SUCCESS
-#         if status_str.lower() in (
-#             'success',
-#             'successful',
-#             'completed',
-#             'paid'
-#         ):
-
-#             payment.status = Payment.STATUS_SUCCESS
-#             payment.save()
-
-#             order = payment.order
-#             order.status = Order.STATUS_PAID
-#             order.save()
-
-#             print("PAYMENT SUCCESSFULLY UPDATED")
-
-#             return Response({
-#                 'success': True
-#             })
-
-#         # FAILED
-#         payment.status = Payment.STATUS_FAILED
-#         payment.save()
-
-#         order = payment.order
-#         order.status = Order.STATUS_FAILED
-#         order.save()
-
-#         print("PAYMENT FAILED")
-
-#         return Response({
-#             'success': False
-#         })
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class AzamPayWebhookAPIView(APIView):
-
-    permission_classes = [permissions.AllowAny]
-    parser_classes = [JSONParser]
-
-    def post(self, request):
-
-        try:
-
-            print("WEBHOOK RECEIVED =>", request.data)
-
-            payload = request.data
-
-            # =========================
-            # GET REFERENCES
-            # =========================
-
-            external_ref = (
-                payload.get('externalreference')
-                or payload.get('external_reference')
-                or payload.get('reference')
-            )
-
-            tx_id = (
-                payload.get('transid')
-                or payload.get('transactionId')
-                or payload.get('transaction_id')
-                or payload.get('tx_id')
-                
-            )
-
-            status_str = (
-                payload.get('transactionStatus')
-                or payload.get('status')
-                or payload.get('payment_status')
-                or payload.get('transactionstatus')
-                or ''
-            ).lower()
-
-
-            
-
-            print("EXTERNAL REF =>", external_ref)
-            print("TX ID =>", tx_id)
-            print("STATUS =>", status_str)
-
-            # =========================
-            # FIND PAYMENT
-            # =========================
-            import time
-            payment = None
-
-            # FIND BY EXTERNAL REFERENCE
-            for attempt in range(3):
-                if external_ref:
-                    payment = Payment.objects.filter(
-                        external_reference=external_ref
-                    ).first()
-                if not payment and tx_id:
-
-                    payment = Payment.objects.filter(
-                        provider_transaction_id=tx_id
-                    ).first()
-                if payment:
-                    break
-                print(f"ATTEMPT {attempt + 1}: Payment not found yet, waiting...")
-                time.sleep(1)# Wait before retrying
-            print("MATCHED PAYMENT =>", payment)
-            # FIND BY PROVIDER TX ID
-       
-            # =========================
-            # PAYMENT NOT FOUND
-            # =========================
-
-            if not payment:
-
-                logger.warning(
-                    "Webhook received for unknown payment: %s",
-                    payload
-                )
-
-                return Response({
-                    "success": True,
-                    "message": "Payment not found"
-                }, status=200)
-
-            # =========================
-            # SAVE RAW RESPONSE
-            # =========================
-
-            payment.raw_response = payload
-            payment.provider_transaction_id = tx_id or payment.provider_transaction_id
-            # =========================
-            # SUCCESS PAYMENT
-            # =========================
-
-            if status_str in (
-                'success',
-                'successful',
-                'completed',
-                'paid'
-                ):
-
-                payment.status = Payment.STATUS_SUCCESS
-                payment.save()
-
-                order = payment.order
-                order.status = Order.STATUS_PAID
-                order.save()
-
-                print("PAYMENT SUCCESSFULLY UPDATED")
-
-                return Response({
-                    "success": True,
-                    "message": "Payment successful"
-                }, status=200)
-
-            # =========================
-            # FAILED PAYMENT
-            # =========================
-
-            payment.status = Payment.STATUS_FAILED
-            payment.save()
-
-            order = payment.order
-            order.status = Order.STATUS_FAILED
-            order.save()
-
-            print("PAYMENT FAILED")
-
-            return Response({
-                "success": False,
-                "message": "Payment failed"
-            }, status=200)
-
-        except Exception as e:
-
-            print("WEBHOOK ERROR =>", str(e))
-
-            logger.exception(
-                "AzamPay webhook error: %s",
-                str(e)
-            )
-
-            return Response({
-                "success": False,
-                "message": str(e)
-            }, status=500)
-# @method_decorator(csrf_exempt, name='dispatch')
-# class AzamPayWebhookAPIView(APIView):
-#     permission_classes = [permissions.AllowAny]
-#     parser_classes = [JSONParser]
-
-#     def post(self, request):
-#         # Optional webhook signature verification
-#         secret = getattr(settings, 'AZAMPAY_WEBHOOK_SECRET', None)
-#         if secret:
-#             # Common header names providers use (case-insensitive via WSGI keys)
-#             signature = (
-#                 request.META.get('HTTP_X_AZAMPAY_SIGNATURE')
-#                 or request.META.get('HTTP_X_SIGNATURE')
-#                 or request.META.get('HTTP_X_HUB_SIGNATURE')
-#             )
-#             if not signature:
-#                 logger.warning('Missing webhook signature header')
-#                 return Response({'detail': 'Missing signature'}, status=400)
-#             try:
-#                 body = request.body or b''
-#                 # provider may send "sha256=<hex>" or raw hex
-#                 computed = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-#                 sig = signature
-#                 if isinstance(sig, bytes):
-#                     sig = sig.decode()
-#                 if sig.startswith('sha256='):
-#                     sig = sig.split('=', 1)[1]
-#                 if not hmac.compare_digest(computed, sig):
-#                     logger.warning('Invalid webhook signature: expected %s got %s', computed, sig)
-#                     return Response({'detail': 'Invalid signature'}, status=403)
-#             except Exception as e:
-#                 logger.exception('Error verifying webhook signature: %s', e)
-#                 return Response({'detail': 'Signature verification error'}, status=400)
-#             print("WEBHOOK RECEIVED =>", request.data)
-#         # Attempt to match by external_reference or transaction_id
-#         payload = request.data
-#         external_ref = payload.get('external_reference') or payload.get('reference')
-#         tx_id = payload.get('transactionId') or payload.get('transaction_id') or payload.get('tx_id')
-#         payment = None
-#         if external_ref:
-#             payment = Payment.objects.filter(order__external_reference=external_ref).first()
-#         if not payment and tx_id:
-#             payment = Payment.objects.filter(transaction_id=tx_id).first()
-
-#         # Record webhook raw response
-#         if payment:
-#             payment.raw_response = payload
-#             status_str = payload.get('status') or payload.get('payment_status') or payload.get('transactionStatus') or ''
-#             if status_str and status_str.lower() in ('success','successful', 'completed', 'paid'):
-#                 payment.status = Payment.STATUS_SUCCESS
-#                 payment.save()
-#                 order = payment.order
-#                 order.status = Order.STATUS_PAID
-#                 order.save()
-#             else:
-#                 payment.status = Payment.STATUS_FAILED
-#                 payment.save()
-#                 order = payment.order
-#                 order.status = Order.STATUS_FAILED
-#                 order.save()
-#             return Response({'ok': True})
-
-#         # If no payment matched, log and return 404
-#         logger.warning('Webhook received for unknown payment: %s', payload)
-#         return Response({'detail': 'Payment not found'}, status=404)
-
-
-class PaymentStatusAPIView(APIView):
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, order_id):
-
-        order = get_object_or_404(
-            Order,
-            id=order_id,
-            user=request.user
-        )
-
-        payment = Payment.objects.filter(order=order).first()
-
-        if not payment:
-            return Response({
-                "success": False,
-                "status": "FAILED",
-                "message": "Payment not found"
-            })
-
-        # SUCCESS
-        if order.status == Order.STATUS_PAID:
-            return Response({
-                "success": True,
-                "status": "SUCCESS",
-                "transaction_id": payment.provider_transaction_id,
-                "message": "Payment successful"
-            })
-
-        # FAILED
-        if order.status == Order.STATUS_FAILED:
-            return Response({
-                "success": False,
-                "status": "FAILED",
-                "transaction_id": payment.provider_transaction_id,
-                "message": "Payment failed"
-            })
-
-        # PROCESSING
-        return Response({
-            "success": False,
-            "status": "PROCESSING",
-            "transaction_id": payment.provider_transaction_id,
-            "message": "Waiting for payment confirmation"
-        })
-# class PaymentStatusAPIView(APIView):
-
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get(self, request, order_id):
-
-#         order = get_object_or_404(
-#             Order,
-#             id=order_id,
-#             user=request.user
-#         )
-
-#         payment = (
-#             Payment.objects
-#             .filter(order=order)
-#             .first()
-#         )
-
-#         if not payment:
-
-#             return Response({
-#                 "success": False,
-#                 "status": "FAILED",
-#                 "message": "Payment not found"
-#             })
-
-#         # already completed
-#         if payment.status == Payment.STATUS_SUCCESS:
-
-#             return Response({
-#                 "success": True,
-#                 "status": "SUCCESS",
-#                 "transaction_id": payment.transaction_id,
-#                 "message": "Payment successful"
-#             })
-
-#         # verify from provider
-#         try:
-
-#             client = AzamPayClient()
-
-#             provider_resp = (
-#                 client.get_transaction_status(
-#                     payment.transaction_id
-#                 )
-#             )
-
-#             print("PROVIDER VERIFY =>", provider_resp)
-
-#             provider_status = (
-#                 provider_resp
-#                 .get("data", {})
-#                 .get("transactionStatus", "")
-#                 .upper()
-#             )
-
-#             payment.raw_response = provider_resp
-
-#             if provider_status in [
-#                 "SUCCESS",
-#                 "COMPLETED",
-#                 "PAID"
-#             ]:
-
-#                 payment.status = (
-#                     Payment.STATUS_SUCCESS
-#                 )
-
-#                 order.status = (
-#                     Order.STATUS_PAID
-#                 )
-
-#                 payment.save()
-
-#                 order.save()
-
-#                 return Response({
-#                     "success": True,
-#                     "status": "SUCCESS",
-#                     "transaction_id":
-#                         payment.transaction_id,
-#                     "message":
-#                         "Payment successful"
-#                 })
-
-#             elif provider_status in [
-#                 "FAILED",
-#                 "ERROR"
-#             ]:
-
-#                 payment.status = (
-#                     Payment.STATUS_FAILED
-#                 )
-
-#                 order.status = (
-#                     Order.STATUS_FAILED
-#                 )
-
-#                 payment.save()
-
-#                 order.save()
-
-#                 return Response({
-#                     "success": False,
-#                     "status": "FAILED",
-#                     "transaction_id":
-#                         payment.transaction_id,
-#                     "message":
-#                         "Payment failed"
-#                 })
-
-#             return Response({
-#                 "success": False,
-#                 "status": "PROCESSING",
-#                 "transaction_id":
-#                     payment.transaction_id,
-#                 "message":
-#                     "Payment still processing"
-#             })
-
-#         except Exception as e:
-
-#             print("VERIFY ERROR =>", str(e))
-
-#             return Response({
-#                 "success": False,
-#                 "status": "PROCESSING",
-#                 "transaction_id":
-#                     payment.transaction_id,
-#                 "message":
-#                     "Unable to verify yet"
-#             })
-
-# class PaymentStatusAPIView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get(self, request, order_id):
-#         order = get_object_or_404(Order, id=order_id, user=request.user)
-#         serializer = OrderStatusSerializer(order)
-#         return Response(serializer.data)
 
 
 class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1116,92 +445,202 @@ class OrderViewSet(viewsets.ModelViewSet):
         if not items or not isinstance(items, list):
             return Response({'detail': 'items required'}, status=400)
 
+        linked_rep = Representative.objects.filter(
+            linked_user=user, is_active=True
+        ).first()
+
+        rep_id = request.data.get("representative_id")
+
+        def _pickup_str(key):
+            v = request.data.get(key)
+            if v is None:
+                return ""
+            return str(v).strip()[:255]
+
+        def _pickup_str_req(key):
+            v = request.data.get(key)
+            if v is None:
+                return ""
+            return str(v).strip()[:255]
+
+        def _full_pickup_missing(
+            pickup_country,
+            pickup_region,
+            pickup_district,
+            pickup_ward,
+            pickup_village,
+            pickup_landmark,
+        ):
+            return [
+                label
+                for label, val in (
+                    ("pickup_country", pickup_country),
+                    ("pickup_region", pickup_region),
+                    ("pickup_district", pickup_district),
+                    ("pickup_ward", pickup_ward),
+                    ("pickup_village", pickup_village),
+                    ("pickup_landmark", pickup_landmark),
+                )
+                if not val
+            ]
+
+        rep = None
+        if linked_rep:
+            rep = linked_rep
+            if rep_id and int(rep_id) != rep.id:
+                return Response(
+                    {
+                        "detail": "Your account is linked to a representative profile; orders are assigned to that profile only."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            pickup_country = _pickup_str_req("pickup_country")
+            pickup_region = _pickup_str_req("pickup_region")
+            pickup_district = _pickup_str_req("pickup_district")
+            pickup_ward = _pickup_str_req("pickup_ward")
+            pickup_village = _pickup_str_req("pickup_village")
+            pickup_landmark = _pickup_str_req("pickup_landmark")
+            missing = _full_pickup_missing(
+                pickup_country,
+                pickup_region,
+                pickup_district,
+                pickup_ward,
+                pickup_village,
+                pickup_landmark,
+            )
+            if missing:
+                return Response(
+                    {
+                        "detail": "Representative accounts must send a full receive location: country, region, district, ward, village, and landmark / popular center.",
+                        "missing": missing,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif rep_id:
+            try:
+                rep = Representative.objects.get(pk=int(rep_id), is_active=True)
+            except Exception:
+                return Response(
+                    {"detail": "Invalid or inactive representative_id."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Prefer client payload; fall back to representative location so DB NOT NULL columns stay valid.
+            pickup_country = _pickup_str("pickup_country")
+            pickup_region = _pickup_str("pickup_region") or (rep.region or "").strip()[:255]
+            pickup_district = _pickup_str("pickup_district") or (rep.district or "").strip()[:255]
+            pickup_ward = _pickup_str("pickup_ward") or (rep.ward or "").strip()[:255]
+            pickup_village = _pickup_str("pickup_village") or (rep.street or "").strip()[:255]
+            pickup_landmark = _pickup_str("pickup_landmark") or (rep.street or "").strip()[:255]
+        else:
+            pickup_country = _pickup_str_req("pickup_country")
+            pickup_region = _pickup_str_req("pickup_region")
+            pickup_district = _pickup_str_req("pickup_district")
+            pickup_ward = _pickup_str_req("pickup_ward")
+            pickup_village = _pickup_str_req("pickup_village")
+            pickup_landmark = _pickup_str_req("pickup_landmark")
+            missing = _full_pickup_missing(
+                pickup_country,
+                pickup_region,
+                pickup_district,
+                pickup_ward,
+                pickup_village,
+                pickup_landmark,
+            )
+            if missing:
+                return Response(
+                    {
+                        "detail": "Send representative_id or a complete pickup address (country, region, district, ward, village, landmark).",
+                        "missing": missing,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         total = 0
-        order = Order.objects.create(user=user, total_amount=0)
+        note = request.data.get('customer_note') or ''
+        if not isinstance(note, str):
+            note = str(note)
+        order = Order.objects.create(
+            user=user,
+            total_amount=0,
+            customer_note=note,
+            pickup_country=pickup_country,
+            pickup_region=pickup_region,
+            pickup_district=pickup_district,
+            pickup_ward=pickup_ward,
+            pickup_village=pickup_village,
+            pickup_landmark=pickup_landmark,
+        )
         for it in items:
             sid = it.get('service_id')
             qty = int(it.get('quantity', 1))
+            try:
+                dh = int(it.get('duration_hours', 1) or 1)
+            except (TypeError, ValueError):
+                dh = 1
+            dh = max(1, min(dh, 9999))
+            raw_note = it.get('line_note')
+            if raw_note is None:
+                raw_note = it.get('note', '')
+            line_note = str(raw_note).strip()[:4000] if raw_note is not None else ''
             try:
                 svc = Service.objects.get(pk=sid, is_active=True)
             except Service.DoesNotExist:
                 order.delete()
                 return Response({'detail': f'Service {sid} not found'}, status=400)
             price = svc.price
-            OrderItem.objects.create(order=order, service=svc, quantity=qty, price=price)
+            OrderItem.objects.create(
+                order=order,
+                service=svc,
+                quantity=qty,
+                price=price,
+                duration_hours=dh,
+                line_note=line_note,
+            )
             total += float(price) * qty
 
         order.total_amount = total
-        # assign representative if provided
-        rep_id = request.data.get('representative_id')
-        if rep_id:
-            try:
-                rep = Representative.objects.get(pk=int(rep_id), is_active=True)
-                order.representative = rep
-            except Exception:
-                # ignore invalid representative
-                pass
+        order.representative = rep
         order.save()
         serializer = self.get_serializer(order)
         return Response(serializer.data, status=201)
-
-    @action(detail=True, methods=['post'])
-    def pay(self, request, pk=None):
-        order = self.get_object()
-        # simulate payment
-        order.status = Order.STATUS_PAID
-        order.save()
-        return Response({'detail': 'Payment succeeded', 'status': order.status})
-
-
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def register_view(request):
-    # expected: email, full_name, password
-    email = request.data.get('email')
-    full_name = request.data.get('full_name')
-    password = request.data.get('password')
-    if not email or not password or not full_name:
-        return Response({'detail': 'email, full_name and password required'}, status=status.HTTP_400_BAD_REQUEST)
-
-    if User.objects.filter(username=email).exists():
-        return Response({'detail': 'User already exists'}, status=status.HTTP_400_BAD_REQUEST)
-
-    user = User.objects.create_user(username=email, email=email, password=password)
-    # split full_name into first/last
-    parts = full_name.strip().split(' ', 1)
-    user.first_name = parts[0]
-    if len(parts) > 1:
-        user.last_name = parts[1]
-    user.save()
-    # create JWT tokens for newly registered user
-    refresh = RefreshToken.for_user(user)
-    user_data = {
-        'id': user.id,
-        'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-        'email': user.email,
-        'is_staff': user.is_staff,
-        'is_superuser': user.is_superuser,
-    }
-    return Response({'access': str(refresh.access_token), 'refresh': str(refresh), 'user': user_data})
-
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         user = self.user
+        profile = getattr(user, 'profile', None)
         data['user'] = {
             'id': user.id,
             'name': f"{user.first_name} {user.last_name}".strip() or user.username,
             'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
+            'email_verified': bool(profile and profile.email_verified_at),
+            'profile': ProfileSerializer(profile).data if profile else {},
         }
+        linked = Representative.objects.filter(
+            linked_user=user, is_active=True
+        ).values("id", "full_name").first()
+        data["user"]["linked_representative"] = (
+            dict(linked) if linked else None
+        )
         return data
 
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
+
+def _linked_representative_payload(user):
+    linked = Representative.objects.filter(
+        linked_user=user, is_active=True
+    ).values("id", "full_name").first()
+    return dict(linked) if linked else None
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
@@ -1220,12 +659,15 @@ def me_view(request):
             'last_name': user.last_name,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
+            'email_verified': bool(profile and profile.email_verified_at),
             'profile': profile_data,
+            'linked_representative': _linked_representative_payload(user),
         }
         return Response(data)
 
     if request.method == 'PUT':
         # accept form-data or json; update user and profile
+        profile, _ = Profile.objects.get_or_create(user=user)
         first_name = request.data.get('first_name')
         last_name = request.data.get('last_name')
         email = request.data.get('email')
@@ -1234,11 +676,14 @@ def me_view(request):
         if last_name is not None:
             user.last_name = last_name
         if email is not None:
-            user.email = email
-            user.username = email
+            old_email = (user.email or "").strip().lower()
+            new_email = email.strip().lower()
+            user.email = new_email
+            user.username = new_email
+            if new_email != old_email:
+                profile.email_verified_at = None
         user.save()
 
-        profile, _ = Profile.objects.get_or_create(user=user)
         # update profile fields
         profile.gender = request.data.get('gender', profile.gender)
         profile.age_group = request.data.get('age_group', profile.age_group)
@@ -1260,7 +705,9 @@ def me_view(request):
             'last_name': user.last_name,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
+            'email_verified': bool(profile and profile.email_verified_at),
             'profile': ProfileSerializer(profile).data,
+            'linked_representative': _linked_representative_payload(user),
         }
         return Response(data)
 
@@ -1273,7 +720,7 @@ def me_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([permissions.AllowAny])
+@permission_classes([permissions.IsAuthenticated])
 def representatives_nearby(request):
     try:
         lat = request.query_params.get('lat')

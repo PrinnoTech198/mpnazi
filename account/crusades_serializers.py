@@ -1,15 +1,19 @@
-"""Serializers for Crusade APIs (Flutter app)."""
+"""Serializers for unified Event APIs.
+
+The legacy Crusade serializer names are kept as aliases at the bottom so
+existing imports and `/crusades/` responses remain compatible.
+"""
 
 from urllib.parse import urlparse, parse_qs
 
 from rest_framework import serializers
 
 from .models import (
-    Crusade,
-    CrusadeGalleryItem,
-    CrusadeReport,
-    CrusadeTestimony,
-    CrusadeVideo,
+    Event,
+    EventGalleryItem,
+    EventReport,
+    EventTestimony,
+    EventVideo,
 )
 
 
@@ -45,13 +49,16 @@ def _absolute_media_url(request, url: str) -> str:
     return url
 
 
-class CrusadeReportSerializer(serializers.ModelSerializer):
+class EventReportSerializer(serializers.ModelSerializer):
     inline_images = serializers.SerializerMethodField()
+    crusade_id = serializers.IntegerField(source='event_id', read_only=True)
+    event_id = serializers.IntegerField(read_only=True)
 
     class Meta:
-        model = CrusadeReport
+        model = EventReport
         fields = [
             'id',
+            'event_id',
             'crusade_id',
             'title',
             'day_label',
@@ -72,11 +79,15 @@ class CrusadeReportSerializer(serializers.ModelSerializer):
         return []
 
 
-class CrusadeTestimonySerializer(serializers.ModelSerializer):
+class EventTestimonySerializer(serializers.ModelSerializer):
+    crusade_id = serializers.IntegerField(source='event_id', read_only=True)
+    event_id = serializers.IntegerField(read_only=True)
+
     class Meta:
-        model = CrusadeTestimony
+        model = EventTestimony
         fields = [
             'id',
+            'event_id',
             'crusade_id',
             'name',
             'image',
@@ -86,13 +97,16 @@ class CrusadeTestimonySerializer(serializers.ModelSerializer):
         ]
 
 
-class CrusadeGalleryItemSerializer(serializers.ModelSerializer):
+class EventGalleryItemSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
+    crusade_id = serializers.IntegerField(source='event_id', read_only=True)
+    event_id = serializers.IntegerField(read_only=True)
 
     class Meta:
-        model = CrusadeGalleryItem
+        model = EventGalleryItem
         fields = [
             'id',
+            'event_id',
             'crusade_id',
             'image_url',
             'is_video',
@@ -111,13 +125,16 @@ class CrusadeGalleryItemSerializer(serializers.ModelSerializer):
         return ''
 
 
-class CrusadeVideoSerializer(serializers.ModelSerializer):
+class EventVideoSerializer(serializers.ModelSerializer):
     youtube_id = serializers.SerializerMethodField()
+    crusade_id = serializers.IntegerField(source='event_id', read_only=True)
+    event_id = serializers.IntegerField(read_only=True)
 
     class Meta:
-        model = CrusadeVideo
+        model = EventVideo
         fields = [
             'id',
+            'event_id',
             'crusade_id',
             'title',
             'youtube_url',
@@ -131,13 +148,14 @@ class CrusadeVideoSerializer(serializers.ModelSerializer):
         return _youtube_id_from_url(obj.youtube_url or '')
 
 
-class CrusadeSerializer(serializers.ModelSerializer):
+class EventSerializer(serializers.ModelSerializer):
     banner_image = serializers.SerializerMethodField()
 
     class Meta:
-        model = Crusade
+        model = Event
         fields = [
             'id',
+            'event_type',
             'title',
             'theme',
             'description',
@@ -173,20 +191,28 @@ class CrusadeSerializer(serializers.ModelSerializer):
         return ''
 
 
-class CrusadeDetailSerializer(CrusadeSerializer):
-    reports = CrusadeReportSerializer(many=True, read_only=True)
-    testimonies = CrusadeTestimonySerializer(many=True, read_only=True)
-    gallery = CrusadeGalleryItemSerializer(
+class EventDetailSerializer(EventSerializer):
+    reports = EventReportSerializer(many=True, read_only=True)
+    testimonies = EventTestimonySerializer(many=True, read_only=True)
+    gallery = EventGalleryItemSerializer(
         source='gallery_items',
         many=True,
         read_only=True,
     )
-    videos = CrusadeVideoSerializer(many=True, read_only=True)
+    videos = EventVideoSerializer(many=True, read_only=True)
 
-    class Meta(CrusadeSerializer.Meta):
-        fields = CrusadeSerializer.Meta.fields + [
+    class Meta(EventSerializer.Meta):
+        fields = EventSerializer.Meta.fields + [
             'reports',
             'testimonies',
             'gallery',
             'videos',
         ]
+
+
+CrusadeReportSerializer = EventReportSerializer
+CrusadeTestimonySerializer = EventTestimonySerializer
+CrusadeGalleryItemSerializer = EventGalleryItemSerializer
+CrusadeVideoSerializer = EventVideoSerializer
+CrusadeSerializer = EventSerializer
+CrusadeDetailSerializer = EventDetailSerializer
