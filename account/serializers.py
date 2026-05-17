@@ -122,7 +122,8 @@ class BookSerializer(serializers.ModelSerializer):
         if not getattr(obj, "file", None):
             return ""
         try:
-            return obj.file.url
+            obj.file.url
+            return obj.file.url.replace("/upload/", "/upload/fl_attachment/")
         except Exception:
             return str(obj.file)
 
