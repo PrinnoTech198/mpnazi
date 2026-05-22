@@ -36,7 +36,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 DEBUG = os.getenv("DEBUG", "False") == "True"
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
-# ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*',"192.168.1.189", "0.0.0.0","causal-gratify-carat.ngrok-free.dev"]
+ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost']
 # CSRF_TRUSTED_ORIGINS = [
 #     "https://causal-gratify-carat.ngrok-free.dev",
 # ]
