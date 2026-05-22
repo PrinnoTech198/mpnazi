@@ -31,8 +31,25 @@ from .email import (
     send_verification_email,
     send_welcome_email,
 )
+from django.contrib.auth.hashers import make_password
+
 from .models import EmailOTPChallenge, Profile
-from .serializers import ProfileSerializer
+from .registration_cache import (
+    REGISTER_CACHE_TTL,
+    REGISTER_OTP_MAX_ATTEMPTS,
+    delete_pending,
+    gen_six_digit_otp,
+    get_pending,
+    increment_failed_attempts,
+    otp_matches,
+    save_pending,
+)
+from .serializers import (
+    ProfileSerializer,
+    RegisterResendSerializer,
+    RegisterStartSerializer,
+    RegisterVerifySerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,39 +179,14 @@ def _tokens_for_user(user: User) -> dict:
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def auth_register(request):
-    """Create inactive user and email a 6-digit verification code."""
-    email = _normalize_email(request.data.get("email", ""))
-    full_name = (request.data.get("full_name") or "").strip()
-    password = request.data.get("password") or ""
-    confirm = request.data.get("confirm_password") or ""
+    """Store pending registration in cache and email a 6-digit OTP (no User row yet)."""
+    ser = RegisterStartSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    if not email or not full_name:
-        return Response(
-            {"detail": "Email and full name are required."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if not _email_valid(email):
-        return Response({"email": ["Enter a valid email address."]}, status=status.HTTP_400_BAD_REQUEST)
-    if password != confirm:
-        return Response(
-            {"confirm_password": ["Passwords do not match."]},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if not _strong_password(password):
-        return Response(
-            {
-                "password": [
-                    "Must be at least 8 characters and include uppercase, lowercase, a number, and a special character."
-                ]
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if User.objects.filter(username__iexact=email).exists():
-        return Response(
-            {"email": ["An account with this email already exists."]},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    email = ser.validated_data["email"]
+    full_name = ser.validated_data["full_name"]
+    password = ser.validated_data["password"]
 
     ip = _client_ip(request)
     if not _rate_under_cap(f"auth:reg:ip:{ip}", IP_COMBINED_HOUR_LIMIT, 3600):
@@ -206,29 +198,25 @@ def auth_register(request):
     parts = full_name.split(" ", 1)
     first = parts[0]
     last = parts[1] if len(parts) > 1 else ""
+    code = gen_six_digit_otp()
+    password_hash = make_password(password)
 
-    with transaction.atomic():
-        user = User.objects.create_user(
-            username=email,
-            email=email,
-            password=password,
-            first_name=first[:150],
-            last_name=last[:150],
-            is_active=False,
-        )
-        Profile.objects.filter(user=user).update(email_verified_at=None)
-        code = _create_otp_challenge(user, EmailOTPChallenge.PURPOSE_REGISTRATION)
+    save_pending(
+        email=email,
+        username=email,
+        password_hash=password_hash,
+        first_name=first,
+        last_name=last,
+        otp_code=code,
+    )
 
-    def _send():
-        send_verification_email(email, code)
-
-    transaction.on_commit(_send)
+    send_verification_email(email, code, expires_minutes=REGISTER_CACHE_TTL // 60)
 
     return Response(
         {
             "detail": "Verification code sent to your email.",
             "email": email,
-            "expires_in_seconds": int(OTP_TTL.total_seconds()),
+            "expires_in_seconds": REGISTER_CACHE_TTL,
         },
         status=status.HTTP_201_CREATED,
     )
@@ -237,27 +225,40 @@ def auth_register(request):
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def auth_register_resend(request):
-    email = _normalize_email(request.data.get("email", ""))
-    if not email:
-        return Response({"detail": "Email required."}, status=status.HTTP_400_BAD_REQUEST)
+    ser = RegisterResendSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    user = User.objects.filter(username__iexact=email, is_active=False).first()
-    if not user:
+    email = ser.validated_data["email"]
+    pending = get_pending(email)
+    if not pending:
         return Response(
-            {"detail": "If an unverified account exists, a code has been sent."},
-            status=status.HTTP_200_OK,
+            {
+                "detail": "Registration session expired. Please start registration again.",
+                "error": "otp_expired",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if User.objects.filter(username__iexact=email).exists() or User.objects.filter(
+        email__iexact=email
+    ).exists():
+        delete_pending(email)
+        return Response(
+            {"email": ["An account with this email already exists."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    sent_at = float(pending.get("sent_at") or 0)
+    if sent_at and (timezone.now().timestamp() - sent_at) < RESEND_MIN_INTERVAL:
+        return Response(
+            {"detail": f"Please wait {RESEND_MIN_INTERVAL} seconds before resending."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
     if not _rate_under_cap(f"auth:resend:reg:{email}", RESEND_HOUR_LIMIT, 3600):
         return Response(
             {"detail": "Too many resend attempts. Please try again later."},
-            status=status.HTTP_429_TOO_MANY_REQUESTS,
-        )
-
-    last = _latest_open_challenge(user, EmailOTPChallenge.PURPOSE_REGISTRATION)
-    if last and (timezone.now() - last.created_at).total_seconds() < RESEND_MIN_INTERVAL:
-        return Response(
-            {"detail": f"Please wait {RESEND_MIN_INTERVAL} seconds before resending."},
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
@@ -268,14 +269,23 @@ def auth_register_resend(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    with transaction.atomic():
-        code = _create_otp_challenge(user, EmailOTPChallenge.PURPOSE_REGISTRATION)
+    code = gen_six_digit_otp()
+    save_pending(
+        email=email,
+        username=pending["username"],
+        password_hash=pending["password"],
+        first_name=pending.get("first_name", ""),
+        last_name=pending.get("last_name", ""),
+        otp_code=code,
+        failed_attempts=0,
+    )
+    send_verification_email(email, code, expires_minutes=REGISTER_CACHE_TTL // 60)
 
-    transaction.on_commit(lambda: send_verification_email(email, code))
     return Response(
         {
             "detail": "Verification code sent.",
-            "expires_in_seconds": int(OTP_TTL.total_seconds()),
+            "email": email,
+            "expires_in_seconds": REGISTER_CACHE_TTL,
         },
         status=status.HTTP_200_OK,
     )
@@ -284,13 +294,12 @@ def auth_register_resend(request):
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def auth_register_verify(request):
-    email = _normalize_email(request.data.get("email", ""))
-    code = (request.data.get("code") or "").strip().replace(" ", "")
-    if not email or len(code) != 6 or not code.isdigit():
-        return Response(
-            {"detail": "Valid email and 6-digit code required."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    ser = RegisterVerifySerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    email = ser.validated_data["email"]
+    code = ser.validated_data["code"]
 
     if not _rate_under_cap(f"auth:verify:reg:{email}", 25, 3600):
         return Response(
@@ -298,37 +307,52 @@ def auth_register_verify(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    user = User.objects.filter(username__iexact=email, is_active=False).first()
-    if not user:
-        return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
-
-    ch = _latest_open_challenge(user, EmailOTPChallenge.PURPOSE_REGISTRATION)
-    if not ch:
-        return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
-
-    if not _codes_match(ch, code):
-        EmailOTPChallenge.objects.filter(pk=ch.pk).update(
-            failed_attempts=F("failed_attempts") + 1
+    pending = get_pending(email)
+    if not pending:
+        return Response(
+            {
+                "detail": "OTP has expired. Please register again.",
+                "error": "otp_expired",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
         )
-        ch.refresh_from_db()
-        if ch.failed_attempts >= OTP_MAX_ATTEMPTS:
-            ch.used_at = timezone.now()
-            ch.save(update_fields=["used_at"])
-        return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if User.objects.filter(username__iexact=email).exists() or User.objects.filter(
+        email__iexact=email
+    ).exists():
+        delete_pending(email)
+        return Response(
+            {"email": ["An account with this email already exists."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    otp_hash = pending.get("otp") or ""
+    if not otp_matches(email, code, otp_hash):
+        attempts = increment_failed_attempts(email)
+        if attempts >= REGISTER_OTP_MAX_ATTEMPTS:
+            delete_pending(email)
+        return Response(
+            {"detail": "Invalid OTP.", "error": "invalid_otp"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     with transaction.atomic():
-        ch.used_at = timezone.now()
-        ch.save(update_fields=["used_at"])
-        user.is_active = True
-        user.save(update_fields=["is_active"])
+        user = User(
+            username=pending["username"],
+            email=pending["email"],
+            first_name=pending.get("first_name", ""),
+            last_name=pending.get("last_name", ""),
+            is_active=True,
+        )
+        user.password = pending["password"]
+        user.save()
+
         prof, _ = Profile.objects.select_for_update().get_or_create(user=user)
         prof.email_verified_at = timezone.now()
         prof.save(update_fields=["email_verified_at"])
 
-    def _welcome():
-        send_welcome_email(user.email)
-
-    transaction.on_commit(_welcome)
+    delete_pending(email)
+    send_welcome_email(user.email)
     data = _tokens_for_user(user)
     return Response(data, status=status.HTTP_200_OK)
 

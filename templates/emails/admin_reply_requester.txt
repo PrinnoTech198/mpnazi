@@ -1,0 +1,13 @@
+Dear {% if prayer.is_anonymous or not prayer.name %}friend{% else %}{{ prayer.name }}{% endif %},
+
+Thank you for your prayer request with {{ organization }}.
+
+{{ reply_text }}
+
+---
+Your original request:
+{{ prayer.request_text }}
+
+With care,
+{{ admin_name }}
+{{ organization }}

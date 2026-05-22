@@ -1,19 +1,18 @@
 """
 Customer email notifications for marketplace orders (payment + fulfillment).
 
-Sending uses the same async SMTP pattern as ``account.email``; failures are logged only.
+Sending uses ``account.email``; failures are logged only.
 """
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 
-from django.utils.html import escape
+from django.db import transaction
 
-from account.email import send_marketplace_order_email
+from account.email import send_cart_order_paid_confirmation, send_marketplace_order_email
 from account.models import Order
 
-from .models import CartOrderFulfillment
+from .models import CartOrderFulfillment, CartOrderPayment
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +37,8 @@ def _customer_email(order: Order) -> str | None:
 
 
 def _rep_line(order: Order) -> str:
+    from django.utils.html import escape
+
     rep = order.representative
     if not rep:
         return ""
@@ -47,7 +48,12 @@ def _rep_line(order: Order) -> str:
     return f'<p style="margin-bottom:0;">Your representative: <strong>{name}</strong></p>'
 
 
-def notify_order_payment_completed(order: Order) -> None:
+def notify_order_payment_completed(
+    order: Order, *, payment: CartOrderPayment | None = None
+) -> None:
+    """
+    Send cart payment confirmation (idempotent per ``CartOrderPayment`` when provided).
+    """
     order = (
         Order.objects.select_related("user", "representative")
         .filter(pk=order.pk)
@@ -55,31 +61,30 @@ def notify_order_payment_completed(order: Order) -> None:
     )
     if not order:
         return
-    to = _customer_email(order)
-    if not to:
+    if not _customer_email(order):
         logger.info("Skip payment-complete email: no address order_id=%s", order.pk)
         return
-    total = order.total_amount
-    if isinstance(total, Decimal):
-        total_s = f"{total:.2f}"
-    else:
-        total_s = escape(str(total))
-    oid = order.pk
-    paras = [
-        '<p style="margin-top:0;">Your payment was <strong>received successfully</strong>.</p>',
-        f"<p>Order <strong>#{oid}</strong> is now marked as paid. Total: <strong>TZS {total_s}</strong>.</p>",
-        "<p>We will keep you updated as your order moves to your representative and toward pickup.</p>",
-        _rep_line(order),
-    ]
+
+    if payment is not None:
+        with transaction.atomic():
+            pay = CartOrderPayment.objects.select_for_update().get(pk=payment.pk)
+            meta = dict(pay.metadata or {})
+            if meta.get("confirmation_email_sent"):
+                logger.info(
+                    "Skip duplicate cart payment email payment_id=%s order_id=%s",
+                    pay.id,
+                    order.pk,
+                )
+                return
+            meta["confirmation_email_sent"] = True
+            pay.metadata = meta
+            pay.save(update_fields=["metadata"])
+            payment = pay
+
     try:
-        send_marketplace_order_email(
-            to,
-            subject=f"Payment received — Mpanzi order #{oid}",
-            page_title="Payment received",
-            inner_html_paragraphs=[p for p in paras if p],
-        )
+        send_cart_order_paid_confirmation(order=order, payment=payment)
     except Exception:
-        logger.exception("notify_order_payment_completed failed order_id=%s", oid)
+        logger.exception("notify_order_payment_completed failed order_id=%s", order.pk)
 
 
 def maybe_notify_fulfillment_status_change(
@@ -99,6 +104,8 @@ def maybe_notify_fulfillment_status_change(
             current,
         )
         return
+
+    from django.utils.html import escape
 
     labels = {
         CartOrderFulfillment.ST_SENT_TO_REP: (

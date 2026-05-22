@@ -187,7 +187,10 @@ class PartnerTypeAdmin(admin.ModelAdmin):
 
 @admin.register(Partnership)
 class PartnershipAdmin(admin.ModelAdmin):
-	list_display = ('id', 'user', 'partner_type', 'amount', 'currency', 'gift_type', 'frequency', 'district', 'ward', 'created_at')
+	list_display = (
+		'id', 'user', 'partner_type', 'amount', 'currency', 'gift_type', 'frequency',
+		'next_reminder_at', 'paid_at', 'district', 'ward', 'created_at',
+	)
 	list_filter = ('currency', 'gift_type', 'frequency', 'partner_type')
 	search_fields = ('user__username', 'street', 'district', 'ward', 'fund')
 

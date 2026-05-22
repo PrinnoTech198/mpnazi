@@ -29,19 +29,23 @@ from pathlib import Path as _Path
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-kav^xz_pq#^pqyx^%g(t+ei2nrpkler)jggy60eq%u(me(7*dq"
-
+#SECRET_KEY = "django-insecure-kav^xz_pq#^pqyx^%g(t+ei2nrpkler)jggy60eq%u(me(7*dq"
+SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+#DEBUG = 
+DEBUG = os.getenv("DEBUG", "False") == "True"
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
 ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','*',"192.168.1.189", "0.0.0.0","causal-gratify-carat.ngrok-free.dev"]
-
-CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "http://127.0.0.1:8000", "http://localhost:8000"]
+CSRF_TRUSTED_ORIGINS = [
+    "https://causal-gratify-carat.ngrok-free.dev",
+]
+#CSRF_TRUSTED_ORIGINS = ["https://mpnazi-production.up.railway.app", "http://127.0.0.1:8000", "http://localhost:8000"]
 
 # Application definition
 
 INSTALLED_APPS = [
+    "jazzmin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -53,10 +57,13 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "rest_framework_simplejwt",
     "account",
+    "payments",
     "cart_payment",
     "django_q",
     "notifications",
+    "prayers",
     "app_version",
+    "channels",
 
     "django_summernote",
     'cloudinary',
@@ -121,18 +128,32 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "mpanzi.urls"
 
-# LocMem default; swap for Redis/Memcached in multi-instance production.
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "mpanzi-default-cache",
+# Registration OTP + rate limits. Set REDIS_URL in production (e.g. redis://127.0.0.1:6379/1).
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "mpanzi-default-cache",
+        }
+    }
+
+REGISTER_OTP_CACHE_TTL = 600  # 10 minutes — pending registration in cache
 
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -162,6 +183,23 @@ CLOUDINARY_STORAGE = {
     'MAGIC_FILE_PATH': 'magic',
 }
 WSGI_APPLICATION = "mpanzi.wsgi.application"
+ASGI_APPLICATION = "mpanzi.asgi.application"
+
+ADMIN_DASHBOARD_URL = os.environ.get(
+    "ADMIN_DASHBOARD_URL", "https://mpnazi-production.up.railway.app"
+)
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+    }
 DB_LIVE = os.getenv("DB_LIVE")
 
 # Database
@@ -257,48 +295,44 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
 )
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "innocentphilbert39@gmail.com")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "lxtc pnvq lboz czed")
+EMAIL_HOST = os.environ.get("EMAIL_HOST")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS").lower() in ("1", "true", "yes")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
+# Gmail app passwords are often pasted with spaces — strip them.
+EMAIL_HOST_PASSWORD = (os.environ.get("EMAIL_HOST_PASSWORD") or "").replace(" ", "")
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL",
     "Mpanzi Ministries <innocentphilbert39@gmail.com>",
 )
 
-# AzamPay — load secrets from environment (sandbox vs production URLs differ).
-AZAMPAY_AUTH_BASE_URL = os.environ.get(
-    "AZAMPAY_AUTH_BASE_URL", "https://authenticator-sandbox.azampay.co.tz"
-)
-AZAMPAY_API_BASE_URL = os.environ.get(
-    "AZAMPAY_API_BASE_URL", "https://sandbox.azampay.co.tz"
-)
-AZAMPAY_APP_NAME = os.environ.get("AZAMPAY_APP_NAME", "housekeeper")
-AZAMPAY_CLIENT_ID = os.environ.get(
-    "AZAMPAY_CLIENT_ID", "474cba96-1296-4b5d-80db-e09c56f57762"
-)
-AZAMPAY_CLIENT_SECRET = os.environ.get(
-    "AZAMPAY_CLIENT_SECRET",
-    "U93YbqvOy5q4yevipbl7CaAOy91WVlS0XC+T1CC8sPK5UAAOmWQdKld6Qd2MgYnYC4G4viczKToWvHBX07LoJhXBph9nY6Ufyp6twwpOzOAIXsnvkJntpSOwCx6I2Aw1AmDAfMr2/Qrt3C6KoGMKfX0keN6Z+BVVjHTlyqMrkHlJehlqQ8IAPGQ0aK5FK8jYr2bkHU16pzSR8x19HbOKxLLJTaQpNpQMIOmwwwUDkn5LPEa//liAydf9ZAhFlhfq92uZcvd7qYVSdKrKop9XXGIuQfqWz6f/jr8Srm5r6vntTnGo6GBlrMiRHlywCS8TgA91R48I0h/kL+8U1kh7iSJYvos5fl1bFnTFps3fbNHGjzC/It/gINxMeshja07WXnbBiZgeXGoSiU/OLv/JJPsbkmV2S91ynIzjNnOaMZiybhVGcMWMi3+KtnU/Vxh7e8YNxC87pmsGL7lHTzy7iDV135Jqgh8/782N4MSkgCCRWeoswHKzjcEeCsifbVmzieq9KcNX6tLhUPnrgv0X7/RJXgJkBQ/34PqUewnUIAymXWix6dFz/gGsnqxvUXQJIDlg1gZ/IuHFLyGxUhgFx4yhQoGEM3YhjUQZEaXo2U7iE9uj9qr2sSVtELYt8UhgSv2cxLLkuaIvA71OLwxK04iaU/h4m0H0p+srBdk1kKI=",
-)
-# Required in production checkout calls; optional in sandbox
-AZAMPAY_X_API_KEY = os.environ.get("AZAMPAY_X_API_KEY", "")
-# Partner giving webhook (must match portal + reachable from internet)
-AZAMPAY_CALLBACK_URL = os.environ.get(
-    "AZAMPAY_CALLBACK_URL",
-    "https://causal-gratify-carat.ngrok-free.dev/api/payments/webhook/",
+# ── Pesapal API 3.0 ────────────────────────────────────────────────────────
+# sandbox: cybqa + demo keys | live: pay.pesapal.com + keys from Pesapal email
+# Docs: https://developer.pesapal.com/how-to-integrate/e-commerce/api-30-json/api-reference
+DEFAULT_PAYMENT_PROVIDER = os.environ.get("DEFAULT_PAYMENT_PROVIDER", "PESAPAL")
+PESAPAL_ENV = os.environ.get("PESAPAL_ENV", "sandbox")
+PESAPAL_BASE_URL = os.environ.get(
+    "PESAPAL_BASE_URL",
+    "https://cybqa.pesapal.com/pesapalv3"
+    if PESAPAL_ENV == "sandbox"
+    else "https://pay.pesapal.com/v3",
+).rstrip("/")
+# Strip whitespace; use quotes in .env when values contain + / = (see .env.example)
+PESAPAL_CONSUMER_KEY = os.environ.get("PESAPAL_CONSUMER_KEY", "").strip()
+PESAPAL_CONSUMER_SECRET = os.environ.get("PESAPAL_CONSUMER_SECRET", "").strip()
+# Public URL Pesapal redirects the customer to after payment (Flutter deep link or web page)
+PESAPAL_CALLBACK_URL = os.environ.get(
+    "PESAPAL_CALLBACK_URL",
+    "https://causal-gratify-carat.ngrok-free.dev/api/payments/callback/",
 ).strip()
-
-# Cart checkout webhook — MUST differ from partner URL; register this in AzamPay for cart.
-_default_cart_cb = (
-    AZAMPAY_CALLBACK_URL.replace("/payments/webhook/", "/cart-payment/webhook/")
-    .replace("/payments/webhook", "/cart-payment/webhook")
-    .rstrip("/")
-)
-CART_AZAMPAY_CALLBACK_URL = (
-    os.environ.get("CART_AZAMPAY_CALLBACK_URL", "").strip() or _default_cart_cb
-)
+PESAPAL_CANCELLATION_URL = os.environ.get("PESAPAL_CANCELLATION_URL", "").strip()
+# IPN URL — must be publicly reachable; register in Pesapal dashboard or auto-register
+PESAPAL_IPN_URL = os.environ.get(
+    "PESAPAL_IPN_URL",
+    "https://causal-gratify-carat.ngrok-free.dev/api/payments/ipn/",
+).strip()
+# Optional: pre-registered notification_id from Pesapal IPN registration
+PESAPAL_NOTIFICATION_ID = os.environ.get("PESAPAL_NOTIFICATION_ID", "").strip()
 
 # Ruhusu trailing slash automatically
 APPEND_SLASH = True
@@ -317,3 +351,19 @@ Q_CLUSTER = {
     "orm": "default",
     "bulk": 10,
 }
+
+
+
+
+
+
+# print("EMAIL_HOST_USER:", EMAIL_HOST_USER)
+# print("EMAIL_HOST_PASSWORD:", EMAIL_HOST_PASSWORD)
+# print("PESAPAL_BASE_URL:", PESAPAL_BASE_URL)
+# print("PESAPAL_CONSUMER_KEY:", PESAPAL_CONSUMER_KEY)
+# print("PESAPAL_CONSUMER_SECRET:", PESAPAL_CONSUMER_SECRET)
+# print("PESAPAL_IPN_URL:", PESAPAL_IPN_URL)
+# print("PESAPAL_CALLBACK_URL:", PESAPAL_CALLBACK_URL)
+# print("PESAPAL_CANCELLATION_URL:", PESAPAL_CANCELLATION_URL)
+# print("PESAPAL_NOTIFICATION_ID:", PESAPAL_NOTIFICATION_ID)
+# print("DEFAULT_PAYMENT_PROVIDER:", DEFAULT_PAYMENT_PROVIDER)

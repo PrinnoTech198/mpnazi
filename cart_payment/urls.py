@@ -1,17 +1,17 @@
 from django.urls import path
 
 from .views import (
-    CartAzamPayWebhookAPIView,
     CartFulfillmentUpdateAPIView,
     CartMyOrdersAPIView,
     CartPaymentInitiateAPIView,
     CartPaymentStatusAPIView,
+    LegacyCartAzamPayWebhookAPIView,
 )
 
 urlpatterns = [
     path("initiate/", CartPaymentInitiateAPIView.as_view(), name="cart-payment-initiate"),
-    path("webhook/", CartAzamPayWebhookAPIView.as_view(), name="cart-payment-webhook"),
-    path("webhook", CartAzamPayWebhookAPIView.as_view(), name="cart-payment-webhook-noslash"),
+    path("webhook/", LegacyCartAzamPayWebhookAPIView.as_view(), name="cart-payment-webhook"),
+    path("webhook", LegacyCartAzamPayWebhookAPIView.as_view(), name="cart-payment-webhook-noslash"),
     path(
         "status/<int:payment_id>/",
         CartPaymentStatusAPIView.as_view(),

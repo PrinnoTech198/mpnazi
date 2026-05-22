@@ -76,7 +76,7 @@ def _wrap_html(title: str, inner_html: str) -> str:
 </html>"""
 
 
-def send_verification_email(email: str, code: str) -> None:
+def send_verification_email(email: str, code: str, *, expires_minutes: int = 10) -> None:
     inner = f"""
       <p style="margin-top:0;">Thank you for registering. Please verify your email address
       to activate your account.</p>
@@ -85,7 +85,7 @@ def send_verification_email(email: str, code: str) -> None:
         text-align:center;margin:28px 0;font-variant-numeric:tabular-nums;">
         {code}
       </p>
-      <p style="margin-bottom:0;">This code expires in <strong>5 minutes</strong>.
+      <p style="margin-bottom:0;">This code expires in <strong>{expires_minutes} minutes</strong>.
       For your security, never share this code with anyone.</p>
     """
     html = _wrap_html("Verify your email", inner)
@@ -236,13 +236,141 @@ def send_partner_giving_paid_confirmation(*, partnership, payment) -> None:
         <tr><td style="padding:12px 16px;background:#f8fafc;font-weight:600;color:#0f172a;">Date</td>
             <td style="padding:12px 16px;">{when or "—"}</td></tr>
       </table>
-      <p><strong>Next steps:</strong> keep this email as your receipt. Our team may follow up about recurring
-      arrangements if you chose recurring giving.</p>
+      <p><strong>Next steps:</strong> keep this email as your receipt.
+      {"You will receive app reminders according to your recurring schedule." if partnership.gift_type == partnership.GIFT_RECURRING else "Our team may follow up about recurring arrangements if you chose recurring giving."}</p>
       <p style="margin-bottom:0;">Questions? Reply to this email or contact us through the Mpanzi app.</p>
     """
     html = _wrap_html("Partnership gift received", inner)
     text = strip_tags(inner)
     _send_async("Your partnership gift — Mpanzi Ministries", html, text, to_email)
+
+
+def send_cart_order_paid_confirmation(*, order, payment=None) -> None:
+    """
+    After marketplace cart payment succeeds, email the customer with order line items.
+    `order` should be an ``account.models.Order`` (user loaded). ``payment`` is optional
+    ``CartOrderPayment`` for reference fields in the email.
+    """
+    from account.models import Order, OrderItem  # noqa: PLC0415
+
+    assert isinstance(order, Order)
+
+    user = order.user
+    to_email = ""
+    recipient_name = "Customer"
+    if user and getattr(user, "is_active", True):
+        to_email = (getattr(user, "email", None) or "").strip()
+        full = (user.get_full_name() or "").strip()
+        if full:
+            recipient_name = full
+        elif getattr(user, "username", None):
+            recipient_name = str(user.username).strip()
+
+    if not to_email:
+        logger.warning(
+            "Cart order paid but no recipient email order_id=%s payment_id=%s",
+            order.pk,
+            getattr(payment, "id", None),
+        )
+        return
+
+    items = list(
+        OrderItem.objects.filter(order_id=order.pk)
+        .select_related("service")
+        .order_by("pk")
+    )
+
+    total = order.total_amount
+    total_s = f"{total:.2f}" if hasattr(total, "quantize") else escape(str(total))
+    oid = escape(str(order.pk))
+    pay_id = escape(str(getattr(payment, "id", "") or ""))
+    prov_txn = escape(
+        str(
+            getattr(payment, "provider_transaction_id", None)
+            or getattr(payment, "order_tracking_id", None)
+            or order.transaction_id
+            or ""
+        )
+    )
+
+    rows_html = ""
+    rows_text_parts: list[str] = []
+    if items:
+        for line in items:
+            svc = line.service
+            item_id = escape(str(svc.pk))
+            item_name = escape(str(svc.title or "Item"))
+            qty = escape(str(line.quantity))
+            rows_html += f"""
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-variant-numeric:tabular-nums;">{item_id}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">{item_name}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center;">{qty}</td>
+        </tr>"""
+            rows_text_parts.append(f"  - ID {svc.pk}: {svc.title} x{line.quantity}")
+    else:
+        rows_html = """
+        <tr><td colspan="3" style="padding:12px;color:#64748b;">No line items recorded for this order.</td></tr>"""
+        rows_text_parts.append("  (no line items)")
+
+    rep = order.representative
+    rep_line = ""
+    if rep and (rep.full_name or "").strip():
+        rep_line = (
+            f'<p style="margin-bottom:0;">Your representative: '
+            f"<strong>{escape(rep.full_name.strip())}</strong></p>"
+        )
+
+    inner = f"""
+      <p style="margin-top:0;">Dear {escape(recipient_name)},</p>
+      <p>Thank you for your order with <strong>Mpanzi Ministries</strong>.
+      Your payment was received successfully.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0"
+        style="width:100%;margin:16px 0;border-collapse:separate;border-spacing:0;
+        border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <tr><td style="padding:12px 16px;background:#f8fafc;font-weight:600;color:#0f172a;">Order</td>
+            <td style="padding:12px 16px;">#{oid}</td></tr>
+        <tr><td style="padding:12px 16px;background:#f8fafc;font-weight:600;color:#0f172a;">Total</td>
+            <td style="padding:12px 16px;">TZS {total_s}</td></tr>
+        <tr><td style="padding:12px 16px;background:#f8fafc;font-weight:600;color:#0f172a;">Payment reference</td>
+            <td style="padding:12px 16px;font-variant-numeric:tabular-nums;">{pay_id or "—"}</td></tr>
+        <tr><td style="padding:12px 16px;background:#f8fafc;font-weight:600;color:#0f172a;">Transaction</td>
+            <td style="padding:12px 16px;word-break:break-all;">{prov_txn or "—"}</td></tr>
+      </table>
+      <p style="font-weight:600;color:#0f172a;margin-bottom:8px;">Items in your order</p>
+      <table role="presentation" cellpadding="0" cellspacing="0"
+        style="width:100%;margin:0 0 20px;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="padding:10px 12px;text-align:left;font-size:13px;color:#0f172a;">Item ID</th>
+            <th style="padding:10px 12px;text-align:left;font-size:13px;color:#0f172a;">Item name</th>
+            <th style="padding:10px 12px;text-align:center;font-size:13px;color:#0f172a;">Qty</th>
+          </tr>
+        </thead>
+        <tbody>{rows_html}
+        </tbody>
+      </table>
+      <p>We will keep you updated as your order moves to your representative and toward pickup.</p>
+      {rep_line}
+      <p style="margin-bottom:0;">Keep this email as your receipt. Questions? Reply to this email or contact us through the Mpanzi app.</p>
+    """
+    html = _wrap_marketplace_order_html("Payment received", inner)
+    text = (
+        f"Dear {recipient_name},\n\n"
+        f"Your Mpanzi order #{order.pk} was paid successfully.\n"
+        f"Total: TZS {total_s}\n"
+        f"Payment reference: {getattr(payment, 'id', '') or '—'}\n"
+        f"Transaction: {prov_txn or '—'}\n\n"
+        "Items:\n"
+        + "\n".join(rows_text_parts)
+        + "\n\nThank you for shopping with Mpanzi Ministries."
+    )
+    _send_async(
+        f"Payment received — Mpanzi order #{order.pk}",
+        html,
+        text,
+        to_email,
+    )
 
 
 def send_marketplace_order_email(

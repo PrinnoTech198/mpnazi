@@ -234,3 +234,14 @@ def all_device_tokens() -> list[str]:
     return list(
         DeviceToken.objects.order_by("-updated_at").values_list("token", flat=True)[:5000]
     )
+
+
+def user_device_tokens(user_id: int) -> list[str]:
+    """FCM tokens registered for a specific authenticated user."""
+    if not user_id:
+        return []
+    return list(
+        DeviceToken.objects.filter(user_id=user_id)
+        .order_by("-updated_at")
+        .values_list("token", flat=True)[:50]
+    )

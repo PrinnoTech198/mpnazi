@@ -8,18 +8,28 @@ from django.db import models
 
 
 class CartOrderPayment(models.Model):
-    """AzamPay (or future gateways) payment row for a marketplace Order only."""
+    """Hosted checkout payment row for a marketplace Order (Pesapal, etc.)."""
 
     PROVIDER_AZAMPAY = "AZAMPAY"
-    PROVIDER_CHOICES = [(PROVIDER_AZAMPAY, "AzamPay")]
+    PROVIDER_PESAPAL = "PESAPAL"
+    PROVIDER_CHOICES = [
+        (PROVIDER_AZAMPAY, "AzamPay (legacy)"),
+        (PROVIDER_PESAPAL, "Pesapal"),
+    ]
 
     STATUS_PENDING = "PENDING"
+    STATUS_PROCESSING = "PROCESSING"
     STATUS_SUCCESS = "SUCCESS"
     STATUS_FAILED = "FAILED"
+    STATUS_CANCELLED = "CANCELLED"
+    STATUS_REFUNDED = "REFUNDED"
     STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
+        (STATUS_PROCESSING, "Processing"),
         (STATUS_SUCCESS, "Success"),
         (STATUS_FAILED, "Failed"),
+        (STATUS_CANCELLED, "Cancelled"),
+        (STATUS_REFUNDED, "Refunded"),
     ]
 
     order = models.ForeignKey(
@@ -30,8 +40,14 @@ class CartOrderPayment(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=3, default="TZS")
     provider = models.CharField(
-        max_length=32, choices=PROVIDER_CHOICES, default=PROVIDER_AZAMPAY
+        max_length=32, choices=PROVIDER_CHOICES, default=PROVIDER_PESAPAL
     )
+    payment_method = models.CharField(max_length=64, blank=True, default="")
+    checkout_url = models.URLField(max_length=500, blank=True, null=True)
+    order_tracking_id = models.CharField(
+        max_length=255, blank=True, null=True, db_index=True
+    )
+    metadata = models.JSONField(blank=True, null=True)
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True
     )

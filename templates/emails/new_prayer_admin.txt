@@ -1,0 +1,8 @@
+New prayer request — {{ prayer.get_category_display }} from {{ prayer.country }}
+
+From: {{ prayer.display_name }}
+{% if prayer.email %}Email: {{ prayer.email }}{% endif %}
+
+{{ prayer.request_text }}
+
+Dashboard: {{ dashboard_url }}

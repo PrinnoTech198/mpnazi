@@ -1,3 +1,6 @@
+import re
+
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
@@ -173,6 +176,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     representative = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
+
     class Meta:
         model = Order
         fields = [
@@ -191,6 +196,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'pickup_landmark',
             'items',
             'representative',
+            'payment',
         ]
 
     def get_representative(self, obj):
@@ -199,6 +205,35 @@ class OrderSerializer(serializers.ModelSerializer):
             return None
         from .serializers import RepresentativeSerializer
         return RepresentativeSerializer(rep, context=self.context).data
+
+    def get_payment(self, obj):
+        """Latest cart payment for staff admin order detail."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if not (user and user.is_authenticated and user.is_staff):
+            return None
+        try:
+            from cart_payment.models import CartOrderPayment
+
+            pay = (
+                CartOrderPayment.objects.filter(order_id=obj.pk)
+                .order_by('-created_at')
+                .first()
+            )
+        except Exception:
+            return None
+        if not pay:
+            return None
+        return {
+            'id': pay.id,
+            'status': pay.status,
+            'provider': pay.provider,
+            'amount': str(pay.amount),
+            'currency': pay.currency,
+            'external_reference': pay.external_reference,
+            'order_tracking_id': pay.order_tracking_id,
+            'provider_transaction_id': pay.provider_transaction_id,
+        }
 
 
 from .models import Profile
@@ -381,3 +416,64 @@ class DevotionalDetailSerializer(serializers.ModelSerializer):
 
     def get_thumbnail(self, obj):
         return DevotionalListSerializer(context=self.context).get_thumbnail(obj)
+
+
+PASSWORD_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$"
+)
+
+
+class RegisterStartSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    full_name = serializers.CharField(max_length=300, trim_whitespace=True)
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_email(self, value):
+        email = value.strip().lower()
+        if User.objects.filter(username__iexact=email).exists() or User.objects.filter(
+            email__iexact=email
+        ).exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        return email
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {"confirm_password": ["Passwords do not match."]}
+            )
+        if not PASSWORD_PATTERN.match(attrs["password"]):
+            raise serializers.ValidationError(
+                {
+                    "password": [
+                        "Must be at least 8 characters and include uppercase, lowercase, "
+                        "a number, and a special character."
+                    ]
+                }
+            )
+        return attrs
+
+
+class RegisterResendSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
+class RegisterVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(required=False, allow_blank=True)
+    otp = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate(self, attrs):
+        raw = (attrs.get("code") or attrs.get("otp") or "").strip().replace(" ", "")
+        if len(raw) != 6 or not raw.isdigit():
+            raise serializers.ValidationError(
+                {"code": ["A valid 6-digit verification code is required."]}
+            )
+        attrs["code"] = raw
+        return attrs

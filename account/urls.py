@@ -12,7 +12,7 @@ from .auth_views import (
     register_view,
 )
 from .payment_views import (
-    AzamPayWebhookAPIView,
+    LegacyAzamPayWebhookAPIView,
     PartnershipPaymentInitiateAPIView,
     PartnershipPaymentReportAPIView,
     PartnershipPaymentStatusAPIView,
@@ -50,6 +50,6 @@ urlpatterns = [
     path('admin/reports/partnership-payments/', PartnershipPaymentReportAPIView.as_view(), name='admin-reports-partnership-payments'),
     path('payments/partnership/initiate/', PartnershipPaymentInitiateAPIView.as_view(), name='payments-partnership-initiate'),
     path('payments/partnership/status/<int:payment_id>/', PartnershipPaymentStatusAPIView.as_view(), name='payments-partnership-status'),
-    path('payments/webhook/', AzamPayWebhookAPIView.as_view(), name='payments-webhook'),
-    path('payments/webhook', AzamPayWebhookAPIView.as_view(), name='payments-webhook-noslash'),
+    path('payments/webhook/', LegacyAzamPayWebhookAPIView.as_view(), name='payments-webhook'),
+    path('payments/webhook', LegacyAzamPayWebhookAPIView.as_view(), name='payments-webhook-noslash'),
 ]

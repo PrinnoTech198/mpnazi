@@ -1,1 +1,1 @@
-# AzamPay and other payment service modules
+# Payment integrations live in the `payments` app (Pesapal, future providers).

@@ -18,7 +18,10 @@ class Command(BaseCommand):
         hours = max(1, int(options["hours"]))
         cutoff = timezone.now() - timedelta(hours=hours)
         qs = CartOrderPayment.objects.filter(
-            status=CartOrderPayment.STATUS_PENDING,
+            status__in=(
+                CartOrderPayment.STATUS_PENDING,
+                CartOrderPayment.STATUS_PROCESSING,
+            ),
             created_at__lt=cutoff,
         )
         n = qs.update(status=CartOrderPayment.STATUS_FAILED, completed_at=timezone.now())

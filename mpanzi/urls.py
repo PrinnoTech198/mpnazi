@@ -29,7 +29,10 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path("api/", include("notifications.urls")),
     path("api/", include("app_version.urls")),
+    path("api/", include("prayers.urls")),
     path("api/", include("account.urls")),
+    path("api/payments/", include("payments.urls")),
+    path("api/admin/payments/", include("payments.admin_urls")),
     path("api/cart-payment/", include("cart_payment.urls")),
 ]
 

@@ -517,6 +517,9 @@ class Partnership(models.Model):
 	ward = models.CharField(max_length=120, blank=True)
 	# Set when an AzamPay (or other) partnership gift succeeds
 	paid_at = models.DateTimeField(blank=True, null=True)
+	# Recurring gift push reminders (see partner_recurring_reminders.py)
+	next_reminder_at = models.DateTimeField(blank=True, null=True, db_index=True)
+	last_reminder_at = models.DateTimeField(blank=True, null=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
@@ -622,19 +625,27 @@ from django.dispatch import receiver
 class Payment(models.Model):
 
     PROVIDER_AZAMPAY = 'AZAMPAY'
+    PROVIDER_PESAPAL = 'PESAPAL'
 
     PROVIDER_CHOICES = [
-        (PROVIDER_AZAMPAY, 'AzamPay'),
+        (PROVIDER_AZAMPAY, 'AzamPay (legacy)'),
+        (PROVIDER_PESAPAL, 'Pesapal'),
     ]
 
     STATUS_PENDING = 'PENDING'
+    STATUS_PROCESSING = 'PROCESSING'
     STATUS_SUCCESS = 'SUCCESS'
     STATUS_FAILED = 'FAILED'
+    STATUS_CANCELLED = 'CANCELLED'
+    STATUS_REFUNDED = 'REFUNDED'
 
     STATUS_CHOICES = [
         (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
         (STATUS_SUCCESS, 'Success'),
         (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_REFUNDED, 'Refunded'),
     ]
 
     order = models.ForeignKey(
@@ -661,8 +672,23 @@ class Payment(models.Model):
     provider = models.CharField(
         max_length=50,
         choices=PROVIDER_CHOICES,
-        default=PROVIDER_AZAMPAY
+        default=PROVIDER_PESAPAL
     )
+
+    currency = models.CharField(max_length=3, default='TZS', blank=True)
+
+    payment_method = models.CharField(max_length=64, blank=True, default='')
+
+    checkout_url = models.URLField(max_length=500, blank=True, null=True)
+
+    order_tracking_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+
+    metadata = models.JSONField(blank=True, null=True)
 
     # YOUR INTERNAL REFERENCE (checkout externalId; prefer uuid4().hex — no hyphens)
     external_reference = models.CharField(

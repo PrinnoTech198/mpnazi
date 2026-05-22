@@ -1,4 +1,5 @@
 from rest_framework import viewsets, filters as drf_filters
+from mpanzi.http_cache import ListConditionalGetMixin, ConditionalGetMixin
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
@@ -55,7 +56,7 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 
-class SermonViewSet(viewsets.ModelViewSet):
+class SermonViewSet(ListConditionalGetMixin, viewsets.ModelViewSet):
     """Sermons API - list, retrieve for public; CRUD for admin."""
     queryset = Sermon.objects.all()
     serializer_class = SermonSerializer
@@ -106,7 +107,7 @@ class SermonViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class AnnouncementViewSet(viewsets.ModelViewSet):
+class AnnouncementViewSet(ListConditionalGetMixin, viewsets.ModelViewSet):
     """Admin can create/update/delete. Public can read/list active announcements."""
     queryset = Announcement.objects.all()
     serializer_class = AnnouncementSerializer
@@ -123,7 +124,7 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         return qs.order_by('-created_at')
 
 
-class NewsViewSet(viewsets.ModelViewSet):
+class NewsViewSet(ConditionalGetMixin, viewsets.ModelViewSet):
     queryset = News.objects.all()
     serializer_class = NewsSerializer
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
@@ -190,7 +191,7 @@ class TimetableViewSet(viewsets.ModelViewSet):
         return qs.order_by('date', 'start_time')
 
 
-class BookViewSet(viewsets.ModelViewSet):
+class BookViewSet(ListConditionalGetMixin, viewsets.ModelViewSet):
     """Books listing and admin CRUD."""
     queryset = Book.objects.all()
     serializer_class = BookSerializer
@@ -207,7 +208,7 @@ class BookViewSet(viewsets.ModelViewSet):
         return qs.order_by('-created_at')
 
 
-class DevotionalViewSet(viewsets.ModelViewSet):
+class DevotionalViewSet(ListConditionalGetMixin, viewsets.ModelViewSet):
     """Public list/retrieve; HTML bodies edited in admin via django-summernote."""
 
     queryset = Devotional.objects.all()
@@ -402,7 +403,7 @@ class FeedbackViewSet(viewsets.ModelViewSet):
 
 
 
-class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
+class ServiceViewSet(ConditionalGetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Service.objects.filter(is_active=True)
     serializer_class = ServiceSerializer
     permission_classes = [permissions.AllowAny]
