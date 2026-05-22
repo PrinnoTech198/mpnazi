@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
 
     "rest_framework",
@@ -273,7 +274,9 @@ STATICFILES_DIRS = [
 
 # 🌟 2. CRITICAL FIX: The destination folder for collectstatic 🌟
 # This is where all files (including Summernote's) will be gathered.
-STATIC_ROOT = BASE_DIR / 'staticfiles' 
+
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 
 STORAGES = {
