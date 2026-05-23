@@ -805,12 +805,33 @@ class EmailOTPChallenge(models.Model):
 		(PURPOSE_PASSWORD_RESET, 'Password reset'),
 	]
 
+	STATUS_ACTIVE = 'active'
+	STATUS_USED = 'used'
+	STATUS_EXPIRED = 'expired'
+	STATUS_LOCKED = 'locked'
+	STATUS_CHOICES = [
+		(STATUS_ACTIVE, 'Active'),
+		(STATUS_USED, 'Used'),
+		(STATUS_EXPIRED, 'Expired'),
+		(STATUS_LOCKED, 'Locked'),
+	]
+
 	user = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
 		on_delete=models.CASCADE,
 		related_name='email_otp_challenges',
+		null=True,
+		blank=True,
 	)
+	email = models.EmailField(db_index=True, blank=True)
 	purpose = models.CharField(max_length=32, choices=PURPOSE_CHOICES, db_index=True)
+	verification_code = models.CharField(max_length=6, blank=True)
+	status_code = models.CharField(
+		max_length=20,
+		choices=STATUS_CHOICES,
+		default=STATUS_ACTIVE,
+		db_index=True,
+	)
 	code_hash = models.CharField(max_length=128)
 	expires_at = models.DateTimeField(db_index=True)
 	used_at = models.DateTimeField(blank=True, null=True)
@@ -821,10 +842,17 @@ class EmailOTPChallenge(models.Model):
 		ordering = ['-created_at']
 		indexes = [
 			models.Index(fields=['user', 'purpose', 'used_at'], name='acct_eotp_user_purp_used'),
+			models.Index(fields=['email', 'purpose', 'status_code'], name='acct_eotp_email_purp_st'),
 		]
 
+	def save(self, *args, **kwargs):
+		if not self.email and self.user_id:
+			self.email = (self.user.email or self.user.username or '').strip()
+		super().save(*args, **kwargs)
+
 	def __str__(self):
-		return f'OTP {self.purpose} for {self.user_id}'
+		target = self.email or (f'user:{self.user_id}' if self.user_id else '?')
+		return f'OTP {self.purpose} for {target}'
 
 
 class Profile(models.Model):

@@ -4,8 +4,9 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
 from django.db import close_old_connections
+
+from account.email import send_email
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -46,13 +47,13 @@ def notify_admin_new_prayer_task(prayer_request_id: int) -> None:
             }
             html = render_to_string("emails/new_prayer_admin.html", ctx)
             text = render_to_string("emails/new_prayer_admin.txt", ctx)
-            send_mail(
+            send_email(
                 subject=f"[New Prayer] {prayer.get_category_display()} from {prayer.country}",
                 message=text,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=recipients,
                 html_message=html,
-                fail_silently=False,
+                fail_silently=True,
             )
 
         from .broadcast import broadcast_new_prayer
@@ -83,13 +84,13 @@ def send_admin_reply_email_task(prayer_request_id: int, reply_text: str, admin_u
         }
         html = render_to_string("emails/admin_reply_requester.html", ctx)
         text = render_to_string("emails/admin_reply_requester.txt", ctx)
-        send_mail(
+        send_email(
             subject="A personal response to your prayer request",
             message=text,
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[prayer.email],
             html_message=html,
-            fail_silently=False,
+            fail_silently=True,
         )
 
         prayer.admin_reply = reply_text

@@ -2,37 +2,106 @@
 Centralized transactional email for authentication flows.
 
 Templates are professional HTML; sending runs on a background thread so API
-responses are not blocked by SMTP latency. Configure credentials via environment
-variables (see mpanzi/settings.py).
+responses are not blocked by network latency. Delivery uses the Resend HTTP API
+(RESEND_API_KEY). SMTP is not used on Railway.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 
+import resend
 from django.conf import settings
-from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.html import escape, strip_tags
 
 logger = logging.getLogger(__name__)
 
+# Resend sandbox sender — works without a verified domain (see resend.com/docs).
+_RESEND_SANDBOX_FROM = "onboarding@resend.dev"
+
+
+def _from_email(override: str | None = None) -> str:
+    """
+    Resolve the sender address for Resend.
+
+    Uses RESEND_FROM_EMAIL when set. Otherwise uses DEFAULT_FROM_EMAIL once the
+    domain is verified (RESEND_USE_VERIFIED_DOMAIN=true). Until then, keeps the
+    display name from DEFAULT_FROM_EMAIL but sends from onboarding@resend.dev.
+    """
+    if override:
+        return override
+    explicit = (os.environ.get("RESEND_FROM_EMAIL") or "").strip()
+    if explicit:
+        return explicit
+    if os.environ.get("RESEND_USE_VERIFIED_DOMAIN", "").lower() in ("1", "true", "yes"):
+        return settings.DEFAULT_FROM_EMAIL
+    default = (settings.DEFAULT_FROM_EMAIL or "").strip()
+    if "<" in default and ">" in default:
+        name = default.split("<", 1)[0].strip().strip('"')
+        if name:
+            return f"{name} <{_RESEND_SANDBOX_FROM}>"
+    if default and "@" in default and "<" not in default:
+        return f"Mpanzi Ministries <{_RESEND_SANDBOX_FROM}>"
+    return f"Mpanzi Ministries <{_RESEND_SANDBOX_FROM}>"
+
+
+def send_email(
+    subject: str,
+    message: str,
+    from_email: str | None = None,
+    recipient_list: list[str] | None = None,
+    html_message: str | None = None,
+    fail_silently: bool = True,
+) -> int:
+    """
+    Drop-in replacement for ``django.core.mail.send_mail`` using Resend's HTTP API.
+
+    Returns 1 on success, 0 on failure. Logs errors; does not raise when
+    ``fail_silently`` is True (default).
+    """
+    recipients = [str(e).strip() for e in (recipient_list or []) if e and str(e).strip()]
+    if not recipients:
+        logger.warning("send_email skipped: empty recipient_list subject=%r", subject)
+        return 0
+
+    api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    if not api_key:
+        logger.error("RESEND_API_KEY is not set; cannot send email subject=%r", subject)
+        return 0
+
+    resend.api_key = api_key
+    params: resend.Emails.SendParams = {
+        "from": _from_email(from_email),
+        "to": recipients,
+        "subject": subject,
+        "text": message or "",
+    }
+    if html_message:
+        params["html"] = html_message
+
+    try:
+        resend.Emails.send(params)
+        logger.info("Email sent via Resend to=%s subject=%r", recipients, subject)
+        return 1
+    except Exception:
+        logger.exception("Resend send failed to=%s subject=%r", recipients, subject)
+        if not fail_silently:
+            raise
+        return 0
+
 
 def _send_async(subject: str, html_body: str, text_body: str, to_email: str) -> None:
     def _run() -> None:
-        try:
-            send_mail(
-                subject=subject,
-                message=text_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[to_email],
-                html_message=html_body,
-                fail_silently=False,
-            )
-            logger.info("Email queued/sent successfully to %s subject=%s", to_email, subject)
-        except Exception:
-            logger.exception("Failed to send email to %s subject=%s", to_email, subject)
+        send_email(
+            subject=subject,
+            message=text_body,
+            recipient_list=[to_email],
+            html_message=html_body,
+            fail_silently=True,
+        )
 
     threading.Thread(target=_run, daemon=True).start()
 

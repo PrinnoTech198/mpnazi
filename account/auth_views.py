@@ -37,6 +37,7 @@ from .models import EmailOTPChallenge, Profile
 from .registration_cache import (
     REGISTER_CACHE_TTL,
     REGISTER_OTP_MAX_ATTEMPTS,
+    _hash_otp,
     delete_pending,
     gen_six_digit_otp,
     get_pending,
@@ -122,7 +123,41 @@ def _invalidate_open_otps(user: User, purpose: str) -> None:
     now = timezone.now()
     EmailOTPChallenge.objects.filter(
         user=user, purpose=purpose, used_at__isnull=True
-    ).update(used_at=now)
+    ).update(used_at=now, status_code=EmailOTPChallenge.STATUS_USED)
+
+
+def _record_registration_otp(email: str, code: str) -> None:
+    """Persist registration OTP for Django admin visibility (auth still uses cache)."""
+    now = timezone.now()
+    EmailOTPChallenge.objects.filter(
+        email__iexact=email,
+        purpose=EmailOTPChallenge.PURPOSE_REGISTRATION,
+        used_at__isnull=True,
+    ).update(used_at=now, status_code=EmailOTPChallenge.STATUS_USED)
+    EmailOTPChallenge.objects.create(
+        email=email,
+        purpose=EmailOTPChallenge.PURPOSE_REGISTRATION,
+        verification_code=code,
+        status_code=EmailOTPChallenge.STATUS_ACTIVE,
+        code_hash=_hash_otp(email, code),
+        expires_at=now + timedelta(seconds=REGISTER_CACHE_TTL),
+    )
+
+
+def _mark_registration_otp_used(email: str) -> None:
+    EmailOTPChallenge.objects.filter(
+        email__iexact=email,
+        purpose=EmailOTPChallenge.PURPOSE_REGISTRATION,
+        used_at__isnull=True,
+    ).update(used_at=timezone.now(), status_code=EmailOTPChallenge.STATUS_USED)
+
+
+def _lock_registration_otp(email: str) -> None:
+    EmailOTPChallenge.objects.filter(
+        email__iexact=email,
+        purpose=EmailOTPChallenge.PURPOSE_REGISTRATION,
+        used_at__isnull=True,
+    ).update(used_at=timezone.now(), status_code=EmailOTPChallenge.STATUS_LOCKED)
 
 
 def _create_otp_challenge(user: User, purpose: str) -> str:
@@ -130,7 +165,10 @@ def _create_otp_challenge(user: User, purpose: str) -> str:
     code = _gen_six_digit()
     EmailOTPChallenge.objects.create(
         user=user,
+        email=user.email or user.username,
         purpose=purpose,
+        verification_code=code,
+        status_code=EmailOTPChallenge.STATUS_ACTIVE,
         code_hash=_hash_code(user.id, purpose, code),
         expires_at=timezone.now() + OTP_TTL,
     )
@@ -209,6 +247,7 @@ def auth_register(request):
         last_name=last,
         otp_code=code,
     )
+    _record_registration_otp(email, code)
 
     send_verification_email(email, code, expires_minutes=REGISTER_CACHE_TTL // 60)
 
@@ -279,6 +318,7 @@ def auth_register_resend(request):
         otp_code=code,
         failed_attempts=0,
     )
+    _record_registration_otp(email, code)
     send_verification_email(email, code, expires_minutes=REGISTER_CACHE_TTL // 60)
 
     return Response(
@@ -331,6 +371,7 @@ def auth_register_verify(request):
         attempts = increment_failed_attempts(email)
         if attempts >= REGISTER_OTP_MAX_ATTEMPTS:
             delete_pending(email)
+            _lock_registration_otp(email)
         return Response(
             {"detail": "Invalid OTP.", "error": "invalid_otp"},
             status=status.HTTP_400_BAD_REQUEST,
@@ -352,6 +393,7 @@ def auth_register_verify(request):
         prof.save(update_fields=["email_verified_at"])
 
     delete_pending(email)
+    _mark_registration_otp_used(email)
     send_welcome_email(user.email)
     data = _tokens_for_user(user)
     return Response(data, status=status.HTTP_200_OK)
@@ -474,11 +516,13 @@ def auth_password_reset_verify(request):
         ch.refresh_from_db()
         if ch.failed_attempts >= OTP_MAX_ATTEMPTS:
             ch.used_at = timezone.now()
-            ch.save(update_fields=["used_at"])
+            ch.status_code = EmailOTPChallenge.STATUS_LOCKED
+            ch.save(update_fields=["used_at", "status_code"])
         return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
 
     ch.used_at = timezone.now()
-    ch.save(update_fields=["used_at"])
+    ch.status_code = EmailOTPChallenge.STATUS_USED
+    ch.save(update_fields=["used_at", "status_code"])
     reset_token = signing.dumps({"u": user.id}, salt=RESET_SIGN_SALT)
     return Response(
         {"reset_token": reset_token, "detail": "Code verified. You may set a new password."},

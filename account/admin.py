@@ -144,13 +144,59 @@ class OrderAdmin(admin.ModelAdmin):
 	readonly_fields = ('created_at',)
 
 
-from .models import Profile
+from .models import EmailOTPChallenge, Profile
 
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-	list_display = ('user', 'phone', 'city', 'share_profile_data')
-	readonly_fields = ()
+	list_display = ('user', 'user_email', 'phone', 'city', 'email_verified_at', 'share_profile_data')
+	search_fields = ('user__username', 'user__email', 'phone', 'city')
+	readonly_fields = ('email_verified_at',)
+
+	@admin.display(description='Email', ordering='user__email')
+	def user_email(self, obj):
+		return obj.user.email if obj.user_id else ''
+
+
+@admin.register(EmailOTPChallenge)
+class EmailOTPChallengeAdmin(admin.ModelAdmin):
+	"""Staff CRUD for email OTP challenges (registration + password reset)."""
+
+	list_display = (
+		'id',
+		'email',
+		'verification_code',
+		'status_code',
+		'purpose',
+		'user',
+		'failed_attempts',
+		'expires_at',
+		'used_at',
+		'created_at',
+	)
+	list_filter = ('status_code', 'purpose', 'created_at')
+	search_fields = ('email', 'verification_code', 'user__email', 'user__username')
+	readonly_fields = ('code_hash', 'created_at')
+	ordering = ('-created_at',)
+	raw_id_fields = ('user',)
+	fieldsets = (
+		(None, {
+			'fields': (
+				'email',
+				'verification_code',
+				'status_code',
+				'purpose',
+				'user',
+			),
+		}),
+		('Validity', {
+			'fields': ('expires_at', 'used_at', 'failed_attempts'),
+		}),
+		('Internal', {
+			'fields': ('code_hash', 'created_at'),
+			'classes': ('collapse',),
+		}),
+	)
 
 
 from .models import Representative

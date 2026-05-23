@@ -299,11 +299,11 @@ EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
 )
 EMAIL_HOST = os.environ.get("EMAIL_HOST","smtp.gmail.com")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 465))
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 587))
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS","true").lower() in ("1", "true", "yes")
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER","innocentphilbert39@gmail.com")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER","")
 # Gmail app passwords are often pasted with spaces — strip them.
-EMAIL_HOST_PASSWORD = (os.environ.get("EMAIL_HOST_PASSWORD","cvwy qinr gycf kpmi") or "").replace(" ", "")
+EMAIL_HOST_PASSWORD = (os.environ.get("EMAIL_HOST_PASSWORD","") or "").replace(" ", "")
 #EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD","cvwy qinr gycf kpmi")
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL",

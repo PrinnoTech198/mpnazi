@@ -29,3 +29,4 @@ channels>=4.2.0
 channels-redis>=4.2.0
 daphne>=4.1.0
 google-auth>=2.40.0
+resend==2.30.1
