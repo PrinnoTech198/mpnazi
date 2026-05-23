@@ -303,7 +303,8 @@ EMAIL_PORT = int(os.environ.get("EMAIL_PORT"))
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS").lower() in ("1", "true", "yes")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 # Gmail app passwords are often pasted with spaces — strip them.
-EMAIL_HOST_PASSWORD = (os.environ.get("EMAIL_HOST_PASSWORD") or "").replace(" ", "")
+# EMAIL_HOST_PASSWORD = (os.environ.get("EMAIL_HOST_PASSWORD") or "").replace(" ", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL",
     "Mpanzi Ministries <innocentphilbert39@gmail.com>",
@@ -360,13 +361,5 @@ Q_CLUSTER = {
 
 
 
-# print("EMAIL_HOST_USER:", EMAIL_HOST_USER)
-# print("EMAIL_HOST_PASSWORD:", EMAIL_HOST_PASSWORD)
-# print("PESAPAL_BASE_URL:", PESAPAL_BASE_URL)
-# print("PESAPAL_CONSUMER_KEY:", PESAPAL_CONSUMER_KEY)
-# print("PESAPAL_CONSUMER_SECRET:", PESAPAL_CONSUMER_SECRET)
-# print("PESAPAL_IPN_URL:", PESAPAL_IPN_URL)
-# print("PESAPAL_CALLBACK_URL:", PESAPAL_CALLBACK_URL)
-# print("PESAPAL_CANCELLATION_URL:", PESAPAL_CANCELLATION_URL)
-# print("PESAPAL_NOTIFICATION_ID:", PESAPAL_NOTIFICATION_ID)
-# print("DEFAULT_PAYMENT_PROVIDER:", DEFAULT_PAYMENT_PROVIDER)
+print("EMAIL_HOST_USER:", EMAIL_HOST_USER)
+print("EMAIL_HOST_PASSWORD:", EMAIL_HOST_PASSWORD)
