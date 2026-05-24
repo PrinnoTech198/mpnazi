@@ -80,6 +80,9 @@ class BookAdmin(admin.ModelAdmin):
 
 
 from django_summernote.admin import SummernoteModelAdmin
+from django.contrib import messages
+from django.core.exceptions import ValidationError
+
 from .models import Devotional
 
 
@@ -103,6 +106,20 @@ class DevotionalAdmin(SummernoteModelAdmin):
 			'fields': ('created_at', 'updated_at')
 		}),
 	)
+
+	def save_model(self, request, obj, form, change):
+		try:
+			super().save_model(request, obj, form, change)
+		except (ValueError, ValidationError) as exc:
+			msg = str(exc)
+			if "api_key" in msg.lower() or "cloudinary" in msg.lower():
+				messages.error(
+					request,
+					"Could not upload media: Cloudinary is not configured on the server. "
+					"Add CLOUD_NAME, API_KEY, and API_SECRET to Railway environment variables, "
+					"or save without a thumbnail.",
+				)
+			raise
 
 
 from .models import Feedback

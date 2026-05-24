@@ -168,21 +168,38 @@ TEMPLATES = [
 ]
 
 
+import logging
+
 import cloudinary
 
-cloudinary.config(
-    cloud_name=os.environ.get('CLOUD_NAME'),
-    api_key=os.environ.get('API_KEY'),
-    api_secret=os.environ.get('API_SECRET'),
-    secure=True
+_settings_logger = logging.getLogger(__name__)
+
+CLOUDINARY_CLOUD_NAME = (os.environ.get("CLOUD_NAME") or "").strip()
+CLOUDINARY_API_KEY = (os.environ.get("API_KEY") or "").strip()
+CLOUDINARY_API_SECRET = (os.environ.get("API_SECRET") or "").strip()
+CLOUDINARY_CONFIGURED = all(
+    (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)
 )
 
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.environ.get('CLOUD_NAME'),
-    'API_KEY': os.environ.get('API_KEY'),
-    'API_SECRET': os.environ.get('API_SECRET'),
-    'MAGIC_FILE_PATH': 'magic',
-}
+if CLOUDINARY_CONFIGURED:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+    CLOUDINARY_STORAGE = {
+        "CLOUD_NAME": CLOUDINARY_CLOUD_NAME,
+        "API_KEY": CLOUDINARY_API_KEY,
+        "API_SECRET": CLOUDINARY_API_SECRET,
+        "MAGIC_FILE_PATH": "magic",
+    }
+else:
+    CLOUDINARY_STORAGE = {}
+    _settings_logger.warning(
+        "Cloudinary env vars missing (CLOUD_NAME, API_KEY, API_SECRET). "
+        "Media uploads use local filesystem storage; set Cloudinary on Railway for production."
+    )
 WSGI_APPLICATION = "mpanzi.wsgi.application"
 ASGI_APPLICATION = "mpanzi.asgi.application"
 
@@ -278,19 +295,27 @@ STATICFILES_DIRS = [
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
+# Media (Summernote attachments, devotional thumbnails, etc.)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+if CLOUDINARY_CONFIGURED:
+    _DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+    _DEFAULT_FILE_STORAGE_OPTIONS: dict = {}
+else:
+    _DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+    _DEFAULT_FILE_STORAGE_OPTIONS = {"location": MEDIA_ROOT}
 
 STORAGES = {
     "default": {
-        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        "BACKEND": _DEFAULT_FILE_STORAGE,
+        "OPTIONS": _DEFAULT_FILE_STORAGE_OPTIONS,
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
 
-# 3. Media Configuration (Needed for Summernote uploads)
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
