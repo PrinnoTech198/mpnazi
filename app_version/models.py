@@ -4,8 +4,6 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
-
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
@@ -51,6 +49,8 @@ class AppVersionControl(models.Model):
     )
     playstore_url = models.URLField(
         max_length=512,
+        blank=True,
+        default="",
         help_text="Google Play Store listing URL.",
     )
     payment_force_update = models.BooleanField(
@@ -72,13 +72,6 @@ class AppVersionControl(models.Model):
         ordering = ["-created_at"]
         verbose_name = "App version control"
         verbose_name_plural = "App version controls"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["is_active"],
-                condition=Q(is_active=True),
-                name="unique_active_app_version_control",
-            ),
-        ]
 
     def __str__(self) -> str:
         status = "active" if self.is_active else "inactive"
@@ -86,11 +79,13 @@ class AppVersionControl(models.Model):
 
     def clean(self) -> None:
         super().clean()
-        if (
-            self.latest_version
-            and self.minimum_supported_version
-            and _compare_semver(self.minimum_supported_version, self.latest_version) > 0
-        ):
+        latest = (self.latest_version or "").strip()
+        minimum = (self.minimum_supported_version or "").strip()
+        if not latest or not minimum:
+            return
+        if not SEMVER_RE.match(latest) or not SEMVER_RE.match(minimum):
+            return
+        if _compare_semver(minimum, latest) > 0:
             raise ValidationError(
                 {
                     "minimum_supported_version": (
@@ -107,10 +102,19 @@ class AppVersionControl(models.Model):
         super().save(*args, **kwargs)
 
 
+def _parse_semver_parts(value: str) -> list[int] | None:
+    text = (value or "").strip()
+    if not SEMVER_RE.match(text):
+        return None
+    return [int(x) for x in text.split(".")]
+
+
 def _compare_semver(a: str, b: str) -> int:
-    """Return -1 if a < b, 0 if equal, 1 if a > b."""
-    pa = [int(x) for x in a.strip().split(".")]
-    pb = [int(x) for x in b.strip().split(".")]
+    """Return -1 if a < b, 0 if equal, 1 if a > b. Requires valid semver strings."""
+    pa = _parse_semver_parts(a)
+    pb = _parse_semver_parts(b)
+    if pa is None or pb is None:
+        raise ValidationError("Invalid semantic version.")
     for i in range(3):
         if pa[i] < pb[i]:
             return -1
