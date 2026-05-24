@@ -192,7 +192,13 @@ class Devotional(models.Model):
 		blank=True,
 		help_text='Optional teaser for lists; auto-filled from body when left blank.',
 	)
-	thumbnail = models.ImageField(upload_to='devotionals/thumbnails/', blank=True, null=True)
+	#thumbnail = models.ImageField(upload_to='devotionals/thumbnails/', blank=True, null=True)
+	thumbnail = CloudinaryField(
+        'image',
+        resource_type='image',
+        blank=True,
+        null=True
+    )
 	content = SummernoteTextField()
 	further_study = SummernoteTextField(blank=True)
 	golden_nugget = SummernoteTextField(blank=True)
