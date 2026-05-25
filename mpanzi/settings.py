@@ -66,29 +66,56 @@ INSTALLED_APPS = [
     "app_version",
     "channels",
 
-    "django_summernote",
+    "django_ckeditor_5",
     'cloudinary',
     'cloudinary_storage',
 ]
 
-# django-summernote (WYSIWYG for Devotional bodies in admin)
-X_FRAME_OPTIONS = "SAMEORIGIN"
-SUMMERNOTE_CONFIG = {
-    "iframe": True,
-    "summernote": {
-        "width": "100%",
-        "height": "480",
-        "toolbar": [
-            ["style", ["style"]],
-            ["font", ["bold", "italic", "underline", "clear"]],
-            ["fontsize", ["fontsize"]],
-            ["para", ["ul", "ol", "paragraph"]],
-            ["insert", ["link"]],
-            ["view", ["fullscreen", "codeview"]],
-        ],
+# django-ckeditor-5 (WYSIWYG for Devotional bodies in admin)
+CKEDITOR_5_FILE_UPLOAD_PERMISSION = "staff"
+CKEDITOR_5_CONFIGS = {
+    "default": {
+        "toolbar": {
+            "items": [
+                "heading",
+                "|",
+                "bold",
+                "italic",
+                "underline",
+                "|",
+                "bulletedList",
+                "numberedList",
+                "blockQuote",
+                "|",
+                "link",
+                "insertImage",
+                "|",
+                "sourceEditing",
+            ],
+            "shouldNotGroupWhenFull": True,
+        },
     },
-    "css_for_widget": (),
-    "js_for_widget": (),
+    "devotional": {
+        "toolbar": {
+            "items": [
+                "heading",
+                "|",
+                "bold",
+                "italic",
+                "underline",
+                "|",
+                "bulletedList",
+                "numberedList",
+                "blockQuote",
+                "|",
+                "link",
+                "insertImage",
+                "|",
+                "sourceEditing",
+            ],
+            "shouldNotGroupWhenFull": True,
+        },
+    },
 }
 
 # Django REST Framework defaults
@@ -290,12 +317,12 @@ STATICFILES_DIRS = [
 ]
 
 # 🌟 2. CRITICAL FIX: The destination folder for collectstatic 🌟
-# This is where all files (including Summernote's) will be gathered.
+# Destination folder for collectstatic (admin + CKEditor assets).
 
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-# Media (Summernote attachments, devotional thumbnails, etc.)
+# Media (CKEditor uploads, devotional thumbnails, etc.)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -315,6 +342,9 @@ STORAGES = {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
+
+if CLOUDINARY_CONFIGURED:
+    CKEDITOR_5_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

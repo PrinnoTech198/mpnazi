@@ -1,4 +1,6 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+
 from .models import Sermon
 
 
@@ -79,15 +81,11 @@ class BookAdmin(admin.ModelAdmin):
 	)
 
 
-from django_summernote.admin import SummernoteModelAdmin
-from django.contrib import messages
-from django.core.exceptions import ValidationError
-
 from .models import Devotional
 
 
 @admin.register(Devotional)
-class DevotionalAdmin(SummernoteModelAdmin):
+class DevotionalAdmin(admin.ModelAdmin):
 	list_display = ('title', 'author', 'category', 'devotion_date', 'published', 'created_at')
 	list_filter = ('published', 'category', 'devotion_date')
 	search_fields = ('title', 'author', 'scripture_reference', 'category')
