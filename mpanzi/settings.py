@@ -32,8 +32,8 @@ from pathlib import Path as _Path
 #SECRET_KEY = "django-insecure-kav^xz_pq#^pqyx^%g(t+ei2nrpkler)jggy60eq%u(me(7*dq"
 SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
-#DEBUG = 
-DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG = True
+#DEBUG = os.getenv("DEBUG", "False") == "True"
 # ALLOWED_HOSTS = ["0.0.0.0", "127.0.0.1","causal-gratify-carat.ngrok-free.dev", "192.168.1.189","*", "localhost"]
 
 ALLOWED_HOSTS = ['mpnazi-production.up.railway.app', '127.0.0.1', 'localhost','192.168.1.189']
