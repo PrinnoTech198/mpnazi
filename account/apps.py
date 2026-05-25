@@ -12,6 +12,9 @@ class AccountConfig(AppConfig):
     def ready(self) -> None:
         import account.signals  # noqa: F401
 
+        from account.summernote_bleach import apply_summernote_bleach_compat
+
+        apply_summernote_bleach_compat()
         self._ensure_recurring_reminder_schedule()
 
     def _ensure_recurring_reminder_schedule(self) -> None:

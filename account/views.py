@@ -209,7 +209,7 @@ class BookViewSet(ListConditionalGetMixin, viewsets.ModelViewSet):
 
 
 class DevotionalViewSet(ListConditionalGetMixin, viewsets.ModelViewSet):
-    """Public list/retrieve; HTML bodies edited in admin via django-ckeditor-5."""
+    """Public list/retrieve; HTML bodies edited in admin via django-summernote."""
 
     queryset = Devotional.objects.all()
     pagination_class = StandardResultsSetPagination

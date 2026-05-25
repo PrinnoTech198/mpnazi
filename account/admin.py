@@ -81,11 +81,13 @@ class BookAdmin(admin.ModelAdmin):
 	)
 
 
+from django_summernote.admin import SummernoteModelAdmin
+
 from .models import Devotional
 
 
 @admin.register(Devotional)
-class DevotionalAdmin(admin.ModelAdmin):
+class DevotionalAdmin(SummernoteModelAdmin):
 	list_display = ('title', 'author', 'category', 'devotion_date', 'published', 'created_at')
 	list_filter = ('published', 'category', 'devotion_date')
 	search_fields = ('title', 'author', 'scripture_reference', 'category')

@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from cloudinary.models import CloudinaryField
-from django_ckeditor_5.fields import CKEditor5Field
+from django_summernote.fields import SummernoteTextField
 
 
 class Sermon(models.Model):
@@ -187,8 +187,8 @@ class Devotional(models.Model):
 	category = models.CharField(max_length=120, blank=True, db_index=True)
 	devotion_date = models.DateField(db_index=True)
 	scripture_reference = models.CharField(max_length=255, blank=True)
-	scripture_text = models.TextField(blank=True)
-	excerpt = models.TextField(
+	scripture_text = SummernoteTextField(blank=True)
+	excerpt = SummernoteTextField(
 		blank=True,
 		help_text='Optional teaser for lists; auto-filled from body when left blank.',
 	)
@@ -199,10 +199,10 @@ class Devotional(models.Model):
         blank=True,
         null=True
     )
-	content = CKEditor5Field(config_name="devotional")
-	further_study = CKEditor5Field(config_name="devotional", blank=True)
-	golden_nugget = CKEditor5Field(config_name="devotional", blank=True)
-	prayer = CKEditor5Field(config_name="devotional", blank=True)
+	content = SummernoteTextField()
+	further_study = SummernoteTextField(blank=True)
+	golden_nugget = SummernoteTextField(blank=True)
+	prayer = SummernoteTextField(blank=True)
 	published = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
