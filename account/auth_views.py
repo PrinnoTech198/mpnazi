@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import secrets
 from datetime import timedelta
@@ -24,6 +25,9 @@ from rest_framework import permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token as google_id_token
 
 from .email import (
     send_password_changed_email,
@@ -397,6 +401,93 @@ def auth_register_verify(request):
     send_welcome_email(user.email)
     data = _tokens_for_user(user)
     return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def auth_google_sign_up(request):
+    """
+    Sign up / log in using Google ID token.
+
+    Expects:
+      { "id_token": "<GOOGLE_ID_TOKEN>" }
+
+    Verifies the token with `google-auth` and returns SimpleJWT tokens.
+    """
+    id_token_str = (request.data.get("id_token") or request.data.get("idToken") or "").strip()
+    if not id_token_str:
+        return Response({"detail": "id_token is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Audience check is required for security. Set this in Railway env vars.
+    google_client_id = (
+        os.environ.get("GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or ""
+    ).strip()
+    if not google_client_id:
+        return Response(
+            {"detail": "Server misconfigured: GOOGLE_CLIENT_ID is not set."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            id_token_str,
+            GoogleRequest(),
+            audience=google_client_id,
+        )
+    except Exception:
+        logger.exception("Google ID token verification failed")
+        return Response(
+            {"detail": "Invalid Google token."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    email = (payload.get("email") or "").strip().lower()
+    if not email:
+        return Response(
+            {"detail": "Google token payload missing email."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    given_name = (payload.get("given_name") or "").strip()
+    family_name = (payload.get("family_name") or "").strip()
+
+    with transaction.atomic():
+        user = User.objects.filter(email__iexact=email).first()
+        created = False
+        if not user:
+            user = User(
+                username=email,
+                email=email,
+                first_name=given_name,
+                last_name=family_name,
+                is_active=True,
+            )
+            user.set_unusable_password()
+            user.save()
+            created = True
+
+        # Keep user info fresh (without overriding when fields are empty).
+        update_fields: list[str] = []
+        if given_name and user.first_name != given_name:
+            user.first_name = given_name
+            update_fields.append("first_name")
+        if family_name and user.last_name != family_name:
+            user.last_name = family_name
+            update_fields.append("last_name")
+        if not user.is_active:
+            user.is_active = True
+            update_fields.append("is_active")
+        if update_fields:
+            user.save(update_fields=update_fields)
+
+        prof, _ = Profile.objects.get_or_create(user=user)
+        if not prof.email_verified_at:
+            prof.email_verified_at = timezone.now()
+            prof.save(update_fields=["email_verified_at"])
+
+    # `created` is unused but kept for clarity.
+    _ = created
+    return Response(_tokens_for_user(user), status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
